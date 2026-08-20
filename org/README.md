@@ -9,6 +9,7 @@
 | ファイル | 配置先（開発対象リポジトリ） | 内容 |
 | --- | --- | --- |
 | `CLAUDE.md` | リポジトリのルート | 層2の運営規約。組織の構成、標準フロー、共通規約、Git、直接通信 |
+| `glossary.md` | `docs/` | **用語集。** 一般的な意味と違う語、範囲が曖昧になる語、このプロジェクトの語。最後の節はプロジェクト開始後にオーケストレーターが育てる |
 | `rules/org-task-ledger.md` | `.claude/rules/` | タスク台帳の書き方（CSV索引 + タスク別Markdown） |
 | `rules/org-escalation.md` | `.claude/rules/` | エスカレーションの4段階、共通停止条件、PO確認待ちキュー |
 | `agents/org-design.md` | `.claude/agents/` | 設計エージェント |
@@ -26,6 +27,8 @@
 ```sh
 # 開発対象リポジトリのルートで
 mkdir -p .claude/agents .claude/rules .claude/skills
+mkdir -p docs
+cp    /path/to/agents-org/org/glossary.md        docs/
 cp -r /path/to/agents-org/org/agents/*        .claude/agents/
 cp -r /path/to/agents-org/org/rules/*         .claude/rules/
 cp -r /path/to/agents-org/org/skills/*        .claude/skills/
