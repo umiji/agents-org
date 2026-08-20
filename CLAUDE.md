@@ -27,6 +27,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/requirements/ai-org-mvp-v0.1.md` — **AI開発組織 MVP 詳細要件定義書 v0.1（Draft）**
 - `docs/decisions/00-research-notes.md` — ベストプラクティス調査メモ（決定の根拠。Claude Code の機能制約を含む）
 - `docs/requirements/v0.1-changes.md` — 確定作業により要件定義書 v0.1 から変更・確定した事項の一覧（次版へ反映する差分）
+- `docs/glossary.md` — **用語集。** 組織上の役割を指す語と、Claude Code という道具の機構を指す語を区別する。**新しい語を使う前にここを見る**
 
 このリポジトリでの作業を始める前に、必ず全文を読むこと。以下はその要約ではなく、**作業中の判断を拘束する制約**の抜き出しである。判断に迷ったら要件定義書の本文が優先する。
 
@@ -90,6 +91,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **本リポジトリ**（層1）:
 
 ```
+docs/glossary.md     用語集（正典）。語の定義を変えたら、その語を使う決定記録も直す
 docs/requirements/   要件定義書と、その差分一覧（正典。版を切って残す）
 docs/decisions/      確定した仕様・設計判断の記録
 org/                 組織の実行時ファイル。開発対象リポジトリへ配置する配布物（org/README.md）
@@ -156,3 +158,5 @@ docs/handover.md                    セッション引き継ぎ記録（11）
 **ハイコンテキストに書かない。** コマンド名・ツール名・設定項目名・ドキュメントの章番号・略語を「名前だけ」で置かず、それが何であり何をするのかを必ずその場で説明する。読み手が文を理解するために別の資料を開かなければならないなら、その文は書けていない。
 
 適用先はチャットの返答だけでなく、コミットメッセージ・決定記録・プルリクエストの本文を含む。詳細と書き換えの例は `.claude/skills/low-context-communication/SKILL.md`。
+
+**語は `docs/glossary.md` に合わせる。** 特に「サブエージェント」は Claude Code の実行機構を指す語であり、組織上の役割を指すときは「担当エージェント」を使う。
