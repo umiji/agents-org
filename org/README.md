@@ -19,6 +19,8 @@
 | `agents/org-documentation.md` | `.claude/agents/` | ドキュメントエージェント |
 | `skills/org-orchestrate/` | `.claude/skills/` | オーケストレーターの手順 |
 | `skills/org-session-resume/` | `.claude/skills/` | セッション再開の手順 |
+| `scripts/org-check.py` | `.claude/scripts/` | **停滞検知と整合性検査。** Python 3.8 以降、標準ライブラリのみ |
+| `settings.snippet.json` | — | セッション開始時に上のスクリプトを走らせる設定。**既存の設定へ追記する**（後述） |
 
 **オーケストレーターのエージェント定義ファイルは無い。** オーケストレーターは**メインセッション自身**である。サブエージェントは `AskUserQuestion` を使えず、PO へ問い合わせできないため、サブエージェントであり得ない。
 
@@ -32,6 +34,8 @@ cp    /path/to/agents-org/org/glossary.md        docs/
 cp -r /path/to/agents-org/org/agents/*        .claude/agents/
 cp -r /path/to/agents-org/org/rules/*         .claude/rules/
 cp -r /path/to/agents-org/org/skills/*        .claude/skills/
+mkdir -p .claude/scripts
+cp    /path/to/agents-org/org/scripts/org-check.py  .claude/scripts/
 ```
 
 `org/CLAUDE.md` は、開発対象リポジトリのルート `CLAUDE.md` へ**追記**する。既に `CLAUDE.md` があれば置き換えず、組織の節として足す。開発対象そのものの規約（技術スタック、ビルド手順、コーディング規約）は、その下へ書く。
@@ -44,9 +48,31 @@ Everything Claude Code / Superpowers 等が導入済みでも共存する前提�
 - hook を足す場合は、既存エントリを**置換せず追記**する
 - 名前が衝突したら**組織側が譲る**（`org-` の後ろを変える）
 
+### 停滞検知を自動で走らせる
+
+`settings.snippet.json` の中身を、開発対象リポジトリの `.claude/settings.json` へ**追記**する。
+
+**ファイルごと上書きしない。** 既存の設定（他の拡張が入れた hook を含む）を消してしまう。`hooks` の項目が既にあるなら、`SessionStart` の配列へ1件足す形にする。
+
+これで、セッションが始まるたびに台帳が検査され、結果が Claude の文脈へ入る。
+
+**`CLAUDE.md` へ書くだけでは駄目な理由**: `CLAUDE.md` は読まれる文脈であって、実行される設定ではない。「セッション開始時に停滞を確認せよ」と書いても、実行されない回が出る。必ず走らせたいものは hook にする。
+
+### スクリプトの使い方
+
+```sh
+python3 .claude/scripts/org-check.py              # 停滞検知と整合性検査
+python3 .claude/scripts/org-check.py --summary    # ゴール健全性の指標を集計
+python3 .claude/scripts/org-check.py --statusline # 1行にまとめる（ステータス行向け）
+python3 .claude/scripts/org-check.py --days 3     # 停滞と判定する日数を変える（既定 2）
+```
+
+終了コードは、検出なしで `0`、停滞や警告ありで `1`、台帳が読めないときに `2`。
+
+**このスクリプトは判定するだけで、対処はしない。** 何をするかはオーケストレーターが決める。スクリプトが勝手に担当を変えると、なぜそうなったかが記録に残らないため。
+
 ## まだ入っていないもの
 
-- **停滞検知・整合性検査スクリプト**と、それを走らせる `SessionStart` hook。契約（入力・出力・終了コード・検査項目）は `docs/decisions/09-stagnation.md` に確定済み。実装言語は開発対象リポジトリの構成に合わせて決める
 - 人間用ビュー（README / handbook）の生成スクリプト。`docs/decisions/06-documentation-agent.md` の確定事項 A
 
 ## 配布方式について
