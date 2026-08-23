@@ -19,6 +19,7 @@
 | `agents/org-documentation.md` | `.claude/agents/` | ドキュメントエージェント |
 | `skills/org-orchestrate/` | `.claude/skills/` | オーケストレーターの手順 |
 | `skills/org-session-resume/` | `.claude/skills/` | セッション再開の手順 |
+| `skills/org-first-run-check/` | `.claude/skills/` | **初回運用の点検手順。** 最初のタスクが1件完了したら使う |
 | `scripts/org-check.py` | `.claude/scripts/` | **停滞検知と整合性検査。** Python 3.8 以降、標準ライブラリのみ |
 | `settings.snippet.json` | — | セッション開始時に上のスクリプトを走らせる設定。**既存の設定へ追記する**（後述） |
 
