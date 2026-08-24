@@ -158,14 +158,35 @@ def parse_date(value: str):
         return None
 
 
-def parse_deps(value: str) -> list[tuple[str, bool]]:
-    """依存の欄を (タスクID, ブロッカーか) の一覧にする。"""
+# 依存の注記。英語表記は task-cycle 方式からの移行で現れる。
+# 読み違えると、着手できないはずのタスクが着手可能に見えるため両方受ける。
+BLOCKER_WORDS = ("ブロッカー", "blocker")
+ADVISORY_WORDS = ("推奨", "recommend")
+
+
+def classify_dep(note: str) -> bool | None:
+    """依存の注記を判定する。True=ブロッカー / False=推奨 / None=判定不能。"""
+    low = note.lower()
+    if any(w in low for w in BLOCKER_WORDS):
+        return True
+    if any(w in low for w in ADVISORY_WORDS):
+        return False
+    return None
+
+
+def parse_deps(value: str) -> list[tuple[str, bool | None]]:
+    """依存の欄を (タスクID, ブロッカーか) の一覧にする。
+
+    3番目の状態 None は「注記があるが、ブロッカーとも推奨とも読めない」。
+    黙って推奨として扱うと、着手できないはずのタスクが動き出すため、
+    判定不能はそのまま返して呼び出し側に警告させる。
+    """
     if not value or value == NONE_MARK:
         return []
-    found = [(tid, "ブロッカー" in note) for tid, note in DEP_ENTRY.findall(value)]
+    found = [(tid, classify_dep(note)) for tid, note in DEP_ENTRY.findall(value)]
     if found:
         return found
-    # かっこ無しで書かれている場合。書式違反だが、IDは拾って依存として扱う。
+    # かっこ無しで書かれている場合。書式違反だが、IDは拾って安全側（ブロッカー）に倒す。
     return [(tid, True) for tid in TASK_ID.findall(value)]
 
 
@@ -266,9 +287,15 @@ def check(tasks: list[dict], days: int) -> tuple[list, list, list]:
                     )
 
         # --- 依存 ---
-        for dep_id, _ in t["deps"]:
+        for dep_id, blocking in t["deps"]:
             if dep_id not in known:
                 warn.append(f"{label}: 依存先 {dep_id} が索引に無い")
+            if blocking is None:
+                warn.append(
+                    f"{label}: 依存 {dep_id} の注記が「ブロッカー」とも「推奨」とも読めない。"
+                    "`T-XXX（ブロッカー）` か `T-XXX（推奨: 理由）` と書く"
+                    "（安全側でブロッカーとして扱っている）"
+                )
 
         # --- 担当 ---
         if state not in TERMINAL:
@@ -296,7 +323,8 @@ def check(tasks: list[dict], days: int) -> tuple[list, list, list]:
         if state == "保留":
             continue  # 意図して止めている
         if state == "未着手" and any(
-            blocking and next((x["state"] for x in tasks if x["id"] == dep_id), None) not in TERMINAL
+            blocking is not False
+            and next((x["state"] for x in tasks if x["id"] == dep_id), None) not in TERMINAL
             for dep_id, blocking in t["deps"]
         ):
             continue  # 依存先待ち。連鎖の根元だけを見ればよい
@@ -327,7 +355,7 @@ def summarize(tasks: list[dict], days: int, open_questions: int | None) -> dict:
     blocked = [
         t for t in open_tasks
         if t["state"] == "保留"
-        or any(b and state_of.get(d) not in TERMINAL for d, b in t["deps"])
+        or any(b is not False and state_of.get(d) not in TERMINAL for d, b in t["deps"])
     ]
 
     ages = {}
