@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-check.py\" --root \"${CLAUDE_PROJECT_DIR}\" --hook",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-check.py\" --root \"${CLAUDE_PROJECT_DIR}\" --hook || python \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-check.py\" --root \"${CLAUDE_PROJECT_DIR}\" --hook",
             "timeout": 60
           }
         ]
