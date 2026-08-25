@@ -31,6 +31,7 @@ description: AI開発組織のオーケストレーターとして動くため�
 mkdir -p docs/tasks
 cp .claude/templates/task-list.csv    docs/task-list-<このリポジトリのルートディレクトリ名>.csv
 cp .claude/templates/tasks-README.md  docs/tasks/README.md
+cp .claude/templates/po-queue.md      docs/po-queue.md
 ```
 
 `docs/handover.md`（ゴールと達成条件）は雛形が無い。項目はセッション再開の手順（`.claude/skills/org-session-resume/`）にある。
