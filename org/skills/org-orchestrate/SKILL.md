@@ -25,13 +25,17 @@ description: AI開発組織のオーケストレーターとして動くため�
 
 ### ブートストラップ
 
+**雛形が `.claude/templates/` にある。手で組み立てない。** 書式は検査スクリプトが機械的に読むため、手で書くと揺らぐ。
+
+```sh
+mkdir -p docs/tasks
+cp .claude/templates/task-list.csv    docs/task-list-<このリポジトリのルートディレクトリ名>.csv
+cp .claude/templates/tasks-README.md  docs/tasks/README.md
 ```
-docs/task-list-{project-name}.csv   ヘッダ行のみ（{project-name} = リポジトリのルートディレクトリ名）
-docs/tasks/                         ディレクトリ
-docs/tasks/README.md                台帳の読み方
-docs/po-queue.md                    空のキュー
-docs/handover.md                    ゴールと達成条件
-```
+
+`docs/handover.md`（ゴールと達成条件）は雛形が無い。項目はセッション再開の手順（`.claude/skills/org-session-resume/`）にある。
+
+タスクを1件登録するたびに、`.claude/templates/T-XXX.md` をコピーして `docs/tasks/T-001.md` を作る。**雛形の中の `<!-- ... -->` は、埋めたら消す。** 残っている節は、検査スクリプトが未記入として警告する。
 
 ---
 

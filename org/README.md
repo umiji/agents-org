@@ -20,6 +20,9 @@
 | `skills/org-orchestrate/` | `.claude/skills/` | オーケストレーターの手順 |
 | `skills/org-session-resume/` | `.claude/skills/` | セッション再開の手順 |
 | `skills/org-first-run-check/` | `.claude/skills/` | **初回運用の点検手順。** 最初のタスクが1件完了したら使う |
+| `templates/T-XXX.md` | `.claude/templates/` | **タスク別ファイルの雛形。** コピーして使う |
+| `templates/task-list.csv` | `.claude/templates/`（使うときに `docs/task-list-{project-name}.csv` へ複写） | 索引のヘッダ行だけの空ファイル |
+| `templates/tasks-README.md` | `.claude/templates/`（使うときに `docs/tasks/README.md` へ複写） | 詳細ファイルの置き場の説明 |
 | `scripts/org-check.py` | `.claude/scripts/` | **停滞検知と整合性検査。** Python 3.8 以降、標準ライブラリのみ |
 | `settings.snippet.json` | — | セッション開始時に上のスクリプトを走らせる設定。**既存の設定へ追記する**（後述） |
 
@@ -35,9 +38,12 @@ cp    /path/to/agents-org/org/glossary.md        docs/
 cp -r /path/to/agents-org/org/agents/*        .claude/agents/
 cp -r /path/to/agents-org/org/rules/*         .claude/rules/
 cp -r /path/to/agents-org/org/skills/*        .claude/skills/
-mkdir -p .claude/scripts
+mkdir -p .claude/scripts .claude/templates
 cp    /path/to/agents-org/org/scripts/org-check.py  .claude/scripts/
+cp -r /path/to/agents-org/org/templates/*        .claude/templates/
 ```
+
+**台帳そのもの（索引・詳細・キュー）は、この時点では作らない。** ゴールを受けたオーケストレーターが最初のタスクを登録する直前に、雛形から作る（手順は `skills/org-orchestrate/`）。空の台帳を先に置くと、組織が動いていないのか、動いて0件なのかが区別できない。
 
 `org/CLAUDE.md` は、開発対象リポジトリのルート `CLAUDE.md` へ**追記**する。既に `CLAUDE.md` があれば置き換えず、組織の節として足す。開発対象そのものの規約（技術スタック、ビルド手順、コーディング規約）は、その下へ書く。
 
