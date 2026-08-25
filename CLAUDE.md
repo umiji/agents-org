@@ -144,6 +144,8 @@ docs/handover.md                    セッション引き継ぎ記録（11）
 | 11 | セッション引き継ぎ | `docs/decisions/11-session-handoff.md` |
 | 12 | エージェント追加方式 | `docs/decisions/12-agent-addition.md` |
 | （追加） | 実行形態と配置 | `docs/decisions/13-execution-form.md` |
+| （追加） | 未決の論点（選択肢と推奨案つき。**確定事項ではない**） | `docs/decisions/14-open-questions.md` |
+| （追加） | ブランチ運用と並列実行 | `docs/decisions/15-branch-and-parallel.md` |
 
 `13` は §23 の12項目には無いが、エージェント定義ファイルを書くために必要だったため確定させた。**オーケストレーターはメインセッションであり、サブエージェントではない**（`00` §1.1 と `08` からの帰結）。
 
