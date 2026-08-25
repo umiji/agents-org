@@ -22,6 +22,7 @@
 | `skills/org-first-run-check/` | `.claude/skills/` | **初回運用の点検手順。** 最初のタスクが1件完了したら使う |
 | `templates/T-XXX.md` | `.claude/templates/` | **タスク別ファイルの雛形。** コピーして使う |
 | `templates/task-list.csv` | `.claude/templates/`（使うときに `docs/task-list-{project-name}.csv` へ複写） | 索引のヘッダ行だけの空ファイル |
+| `templates/po-queue.md` | `.claude/templates/`（使うときに `docs/po-queue.md` へ複写） | **PO確認待ちキューの雛形。** 見出しの書式が検査対象 |
 | `templates/tasks-README.md` | `.claude/templates/`（使うときに `docs/tasks/README.md` へ複写） | 詳細ファイルの置き場の説明 |
 | `scripts/org-check.py` | `.claude/scripts/` | **停滞検知と整合性検査。** Python 3.8 以降、標準ライブラリのみ |
 | `settings.snippet.json` | — | セッション開始時に上のスクリプトを走らせる設定。**既存の設定へ追記する**（後述） |
