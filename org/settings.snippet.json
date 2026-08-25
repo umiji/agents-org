@@ -7,6 +7,22 @@
             "type": "command",
             "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-check.py\" --root \"${CLAUDE_PROJECT_DIR}\" --hook || python \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-check.py\" --root \"${CLAUDE_PROJECT_DIR}\" --hook",
             "timeout": 60
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-tokens.py\" --root \"${CLAUDE_PROJECT_DIR}\" --update --hook || python \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-tokens.py\" --root \"${CLAUDE_PROJECT_DIR}\" --update --hook",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-tokens.py\" --root \"${CLAUDE_PROJECT_DIR}\" --update --hook || python \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-tokens.py\" --root \"${CLAUDE_PROJECT_DIR}\" --update --hook",
+            "timeout": 120
           }
         ]
       }
