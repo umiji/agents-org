@@ -70,6 +70,17 @@ UNKNOWN_MARK = "不明"
 # レビューとテストの反復上限（2往復）から導いた値。
 REWORK_LIMIT = 3
 
+# 指示として埋まっていなければならない節。空のまま割り当てると、レビューとテストが
+# 判定基準を持たないまま動く。人間の目視に任せず機械で捕まえる。
+REQUIRED_SECTIONS = ["完了条件", "判断してよい範囲", "変更範囲", "禁止事項"]
+
+# 雛形の案内文（HTMLコメント）と、埋めたつもりの空文字。どちらも「未記入」とみなす。
+HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+PLACEHOLDERS = {"", "-", "—", "tbd", "todo", "未定", "未記入", "（未記入）", "(未記入)"}
+
+# PO確認待ちキューの状態。見出しの行に識別子と一緒に置く決まり。
+QUEUE_STATES = ["未回答", "回答済み", "取り下げ"]
+
 TASK_ID = re.compile(r"T-\d+")
 # 「T-001（ブロッカー）」「T-001（推奨: 理由）」。全角と半角のかっこを両方許す。
 DEP_ENTRY = re.compile(r"(T-\d+)\s*[（(]([^）)]*)[)）]")
@@ -119,14 +130,17 @@ def read_index(path: str) -> list[dict]:
     return [{(k or "").strip(): (v or "").strip() for k, v in r.items()} for r in rows]
 
 
-def read_metadata(path: str) -> dict:
-    """タスク別ファイルの「## メタデータ」から `- キー: 値` を読む。"""
+def read_doc(path: str) -> str:
+    """タスク別ファイルの中身。読めなければ空文字。"""
     try:
         with open(path, encoding="utf-8") as f:
-            text = f.read()
+            return f.read()
     except OSError:
-        return {}
+        return ""
 
+
+def read_metadata(text: str) -> dict:
+    """タスク別ファイルの「## メタデータ」から `- キー: 値` を読む。"""
     meta, inside = {}, False
     for line in text.splitlines():
         if line.startswith("#"):
@@ -139,6 +153,11 @@ def read_metadata(path: str) -> dict:
                 meta[m.group(1).strip()] = m.group(2).strip()
     meta["_blockers"] = Q_ID.findall(section(text, "ブロッカー"))
     return meta
+
+
+def is_blank(body: str) -> bool:
+    """節が実質的に未記入か。雛形の案内文（HTMLコメント）だけなら未記入とみなす。"""
+    return HTML_COMMENT.sub("", body).strip().lower() in PLACEHOLDERS
 
 
 def section(text: str, name: str) -> str:
@@ -197,7 +216,8 @@ def build(root: str, index_path: str, today: dt.date) -> list[dict]:
     for row in read_index(index_path):
         doc_rel = row.get("ドキュメント", "")
         doc_abs = os.path.join(root, doc_rel) if doc_rel else ""
-        meta = read_metadata(doc_abs) if doc_abs and os.path.isfile(doc_abs) else {}
+        doc_text = read_doc(doc_abs) if doc_abs and os.path.isfile(doc_abs) else ""
+        meta = read_metadata(doc_text) if doc_text else {}
         updated = parse_date(row.get("更新日", ""))
 
         try:
@@ -216,6 +236,7 @@ def build(root: str, index_path: str, today: dt.date) -> list[dict]:
             "doc_rel": doc_rel,
             "doc_exists": bool(doc_abs) and os.path.isfile(doc_abs),
             "meta": meta,
+            "text": doc_text,
             "rework": rework,
             "updated": updated,
             "age": (today - updated).days if updated else None,
@@ -244,6 +265,33 @@ def stagnation_exempt(task: dict, state_of: dict) -> str | None:
     ):
         return "依存先待ち。連鎖の根元だけを見ればよい"
     return None
+
+
+def check_queue(root: str) -> list[str]:
+    """PO確認待ちキューの書式検査。識別子と状態が同じ行に無いものを警告する。"""
+    path = os.path.join(root, "docs", "po-queue.md")
+    if not os.path.exists(path):
+        return []
+    text = read_doc(path)
+    if not text:
+        return []
+
+    seen, with_state = set(), set()
+    for line in text.splitlines():
+        ids = set(Q_ID.findall(line))
+        if not ids:
+            continue
+        seen |= ids
+        if any(st in line for st in QUEUE_STATES):
+            with_state |= ids
+
+    missing = sorted(seen - with_state)
+    if not missing:
+        return []
+    return [
+        f"PO確認待ちキュー: {', '.join(missing)} の状態が識別子と同じ行に無い"
+        "。未回答の件数が数えられず、指標に出ない（`### Q-001 [未回答] 要約` の形にする）"
+    ]
 
 
 def check(tasks: list[dict], days: int) -> tuple[list, list, list]:
@@ -278,7 +326,8 @@ def check(tasks: list[dict], days: int) -> tuple[list, list, list]:
             warn.append(f"{label}: 詳細ファイルが無い → {t['doc_rel']}")
         else:
             meta = t["meta"]
-            if not meta:
+            # `_` で始まるキーはスクリプトが足した内部用。実際に書かれた項目だけを見る。
+            if not any(not k.startswith("_") for k in meta):
                 warn.append(f"{label}: 詳細ファイルに「## メタデータ」節が無いか、`- キー: 値` の形になっていない")
             else:
                 if meta.get("状態") and meta["状態"] != state:
@@ -292,6 +341,22 @@ def check(tasks: list[dict], days: int) -> tuple[list, list, list]:
                         f"{label}: 更新日が食い違う（索引「{row.get('更新日')}」/ 詳細「{meta['更新日']}」）"
                         "。索引が古いと停滞を誤検知する"
                     )
+
+            # --- 指示として埋まっていなければならない節 ---
+            # 割り当て済み、または着手済みのタスクだけを見る。中止は対象外。
+            assigned = t["owner"] and t["owner"] != UNASSIGNED
+            if state != "中止" and (assigned or state in IN_PROGRESS or state == "完了"):
+                empty = [n for n in REQUIRED_SECTIONS if is_blank(section(t["text"], n))]
+                if empty:
+                    warn.append(
+                        f"{label}: 指示が未記入のまま担当が付いている → {' / '.join(empty)}"
+                        "。レビューとテストが判定基準を持たないまま動く"
+                    )
+            if state == "完了" and is_blank(section(t["text"], "証拠")):
+                warn.append(
+                    f"{label}: 状態が「完了」なのに `## 証拠` が空。"
+                    "完了条件を満たしたと言える根拠（実行したコマンドと実出力）が無い"
+                )
 
         # --- 依存 ---
         for dep_id, _ in t["deps"]:
@@ -517,6 +582,7 @@ def main(argv=None) -> int:
         return print_summary(s) if args.summary else print_statusline(s, s["停滞"])
 
     stale, remind, warn = check(tasks, args.days)
+    warn += check_queue(args.root)
     code = print_checks(stale, remind, warn, args.days)
     # フックから呼ばれたときは 0 を返す。Claude Code は終了コードが 0 のときだけ
     # 標準出力をセッションの文脈へ入れるため、1 を返すと検出結果そのものが届かない。
