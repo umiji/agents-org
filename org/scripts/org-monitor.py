@@ -94,6 +94,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 BASE_PORT = 7391
 PORT_SPAN = 10
 
+# 既に動いているモニタを探すとき、1つのポートを何秒待つか。
+PROBE_TIMEOUT = 0.4
+
 # 画面から通信が来なくなってから、何秒でモニタ自身を終わらせるか。
 # ブラウザのタブを閉じ忘れても、プロセスが残り続けないようにするため。
 IDLE_TIMEOUT = 600
@@ -446,7 +449,7 @@ class Handler(BaseHTTPRequestHandler):
         self.server.last_seen = time.time()
         path = self.path.split("?")[0]
         if path == "/":
-            self.send_body(PAGE.encode("utf-8"), "text/html; charset=utf-8")
+            self.send_body(load_page().encode("utf-8"), "text/html; charset=utf-8")
         elif path == "/api/state":
             body = json.dumps(self.server.snapshot(), ensure_ascii=False)
             self.send_body(body.encode("utf-8"), "application/json; charset=utf-8")
@@ -491,22 +494,41 @@ class Monitor(ThreadingHTTPServer):
             return self.cached
 
 
+def probe_port(port: int, root: str, hits: dict) -> None:
+    """1つのポートに、同じリポジトリを見ているモニタが居るか確かめる。"""
+    url = "http://127.0.0.1:{}".format(port)
+    try:
+        with urllib.request.urlopen(url + "/api/state", timeout=PROBE_TIMEOUT) as res:
+            state = json.loads(res.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, ValueError):
+        return
+    if isinstance(state, dict) and state.get("root") \
+            and os.path.normcase(state["root"]) == os.path.normcase(root):
+        hits[port] = url
+
+
 def find_running(root: str, base: int, span: int) -> str | None:
     """同じリポジトリを見ているモニタが既に動いていないか探す。
 
     動いていれば、そのURLを返す。二重に立てず、既にあるものを開き直す。
+
+    **候補のポートは同時に確かめる。** 環境によっては、空きポートへの接続が
+    「すぐ拒否される」のではなく「待たされた末に時間切れになる」（Windows の
+    ファイアウォールが黙って捨てる場合がこれ）。1つずつ順に試すと、その待ち
+    時間が候補の数だけ積み上がり、セッションの開始が数秒止まる。
     """
     root = os.path.abspath(root)
-    for port in range(base, base + span):
-        url = "http://127.0.0.1:{}".format(port)
-        try:
-            with urllib.request.urlopen(url + "/api/state", timeout=0.4) as res:
-                state = json.loads(res.read().decode("utf-8"))
-        except (urllib.error.URLError, OSError, ValueError):
-            continue
-        if isinstance(state, dict) and state.get("root") \
-                and os.path.normcase(state["root"]) == os.path.normcase(root):
-            return url
+    hits: dict = {}
+    threads = [
+        threading.Thread(target=probe_port, args=(port, root, hits), daemon=True)
+        for port in range(base, base + span)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(PROBE_TIMEOUT + 0.5)
+    for port in sorted(hits):
+        return hits[port]
     return None
 
 
@@ -640,255 +662,40 @@ def run_from_hook(args, root: str) -> int:
 
 # --------------------------------------------------------------------------
 # 画面
-#
-# 外部の配信サーバ（CDN）からは何も読み込まない。配布物にネットワーク依存を
-# 持ち込まないため。オフラインでも、初回でも、そのまま表示できる。
 # --------------------------------------------------------------------------
 
-PAGE = """<!doctype html>
-<html lang="ja">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+# 画面は、このスクリプトと同じディレクトリに置いた HTML ファイルである。
+# 外部の配信サーバ（CDN）からは何も読み込まない——配布物にネットワーク依存を
+# 持ち込まないため。オフラインでも、初回でも、そのまま表示できる。
+PAGE_FILE = os.path.join(HERE, "org-monitor-page.html")
+
+# 画面のファイルが見つからないときに出すもの。取得口（/api/state）は生きて
+# いるので、何が足りないかを伝えて終わりにする。
+FALLBACK_PAGE = """<!doctype html><meta charset="utf-8">
 <title>AI開発組織モニタ</title>
-<style>
-:root {
-  --bg: #0f1115;
-  --panel: #161a21;
-  --panel-2: #1c2129;
-  --line: #262c36;
-  --text: #e7ecf3;
-  --dim: #8b97a8;
-  --faint: #5d6878;
-  --live: #4ade80;
-  --idle: #48525f;
-  --accent: #ffb454;
-  --font: "Segoe UI", "Hiragino Kaku Gothic ProN", "Noto Sans JP", Meiryo, sans-serif;
-  --mono: "SFMono-Regular", Consolas, "Roboto Mono", monospace;
-}
-* { box-sizing: border-box; }
-body {
-  margin: 0; background: var(--bg); color: var(--text);
-  font-family: var(--font); font-size: 14px; line-height: 1.6;
-  padding: 22px 26px 40px;
-}
-a { color: inherit; }
-
-/* --- 見出し帯 --- */
-.top { display: flex; align-items: flex-end; gap: 18px; flex-wrap: wrap;
-       border-bottom: 1px solid var(--line); padding-bottom: 14px; }
-.title { font-size: 15px; letter-spacing: .14em; color: var(--dim); }
-.repo { font-size: 26px; font-weight: 700; letter-spacing: -.01em; }
-.top .right { margin-left: auto; text-align: right; }
-.total { font-family: var(--mono); font-size: 26px; font-weight: 600;
-         color: var(--accent); letter-spacing: -.02em; }
-.total span { font-size: 13px; color: var(--faint); margin-left: 4px; }
-.breakdown { font-family: var(--mono); font-size: 11.5px; color: var(--faint); }
-.pulse { display: inline-block; width: 7px; height: 7px; border-radius: 50%;
-         background: var(--live); margin-right: 7px; vertical-align: 1px; }
-.pulse.stale { background: #f87171; animation: none; }
-.live { font-size: 11.5px; color: var(--faint); }
-
-/* --- 節 --- */
-section { margin-top: 26px; }
-h2 { font-size: 12px; font-weight: 600; letter-spacing: .16em; color: var(--faint);
-     margin: 0 0 12px; text-transform: uppercase; }
-h2 b { color: var(--dim); font-weight: 600; }
-
-/* --- 稼働中のカード --- */
-.cards { display: grid; gap: 12px;
-         grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); }
-.card { background: var(--panel); border: 1px solid var(--line);
-        border-left: 3px solid var(--live); border-radius: 9px; padding: 13px 15px; }
-.card .head { display: flex; align-items: baseline; gap: 9px; }
-.role { font-size: 16px; font-weight: 700; }
-.task { font-family: var(--mono); font-size: 12px; color: var(--accent);
-        margin-left: auto; }
-.desc { color: var(--dim); font-size: 13px; margin-top: 3px;
-        overflow-wrap: anywhere; }
-.meta { display: flex; gap: 14px; margin-top: 10px; padding-top: 9px;
-        border-top: 1px solid var(--line);
-        font-family: var(--mono); font-size: 12px; color: var(--faint); }
-.meta b { color: var(--text); font-weight: 600; }
-
-/* --- 終了済み・タスク --- */
-.rows { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
-.row { display: flex; align-items: center; gap: 12px; padding: 7px 14px;
-       background: var(--panel); border-top: 1px solid var(--line); font-size: 13px; }
-.row:first-child { border-top: 0; }
-.row .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--idle);
-            flex: none; }
-.row .dot.on { background: var(--live); }
-.row .id { font-family: var(--mono); font-size: 12px; color: var(--accent);
-           min-width: 62px; }
-.row .name { flex: 1; overflow: hidden; text-overflow: ellipsis;
-             white-space: nowrap; }
-.row .state { font-size: 12px; color: var(--dim); min-width: 84px; }
-.row .num { font-family: var(--mono); font-size: 12px; color: var(--faint);
-            text-align: right; min-width: 88px; }
-.row.done .name, .row.done .state { color: var(--faint); }
-
-.empty { color: var(--faint); font-size: 13px; padding: 16px 0; }
-.notes { margin-top: 22px; font-size: 12.5px; color: var(--faint); }
-.notes div { border-left: 2px solid var(--line); padding-left: 10px;
-             margin-top: 5px; }
-@keyframes breathe { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
-.pulse { animation: breathe 2s ease-in-out infinite; }
-</style>
-</head>
-<body>
-
-<div class="top">
-  <div>
-    <div class="title">AI開発組織モニタ</div>
-    <div class="repo" id="repo">…</div>
-  </div>
-  <div class="right">
-    <div class="total"><span id="tokens">0</span> <span>tokens</span></div>
-    <div class="breakdown" id="breakdown"></div>
-    <div class="live"><i class="pulse" id="pulse"></i><span id="live">接続中…</span></div>
-  </div>
-</div>
-
-<section>
-  <h2>稼働中のエージェント <b id="running-count"></b></h2>
-  <div class="cards" id="cards"></div>
-  <div class="empty" id="cards-empty" style="display:none">
-    いま動いている担当エージェントはいない。
-  </div>
-</section>
-
-<section id="done-section" style="display:none">
-  <h2>終了したエージェント</h2>
-  <div class="rows" id="done"></div>
-</section>
-
-<section>
-  <h2>タスク台帳</h2>
-  <div class="rows" id="tasks"></div>
-  <div class="empty" id="tasks-empty" style="display:none">タスクがまだ無い。</div>
-</section>
-
-<div class="notes" id="notes"></div>
-
-<script>
-var ACTIVE = ["実装中", "テスト中", "レビュー中", "設計中", "テスト作成中", "PO確認待ち"];
-
-function num(n) { return (n || 0).toLocaleString("ja-JP"); }
-
-function dur(sec) {
-  sec = Math.max(0, Math.floor(sec || 0));
-  var m = Math.floor(sec / 60), s = sec % 60;
-  if (m >= 60) { return Math.floor(m / 60) + "時間" + (m % 60) + "分"; }
-  return m + "分" + String(s).padStart(2, "0") + "秒";
-}
-
-function el(tag, cls, text) {
-  var node = document.createElement(tag);
-  if (cls) { node.className = cls; }
-  if (text !== undefined) { node.textContent = text; }
-  return node;
-}
-
-function card(agent) {
-  var box = el("div", "card");
-  var head = el("div", "head");
-  head.appendChild(el("span", "role", agent.role));
-  if (agent.task) { head.appendChild(el("span", "task", agent.task)); }
-  box.appendChild(head);
-  box.appendChild(el("div", "desc", agent.description || "(作業内容の記載なし)"));
-  var meta = el("div", "meta");
-  var time = el("span", null, "");
-  time.appendChild(el("b", null, dur(agent.elapsed)));
-  meta.appendChild(time);
-  var tok = el("span", null, "");
-  tok.appendChild(el("b", null, num(agent.tokens)));
-  tok.appendChild(document.createTextNode(" tok"));
-  meta.appendChild(tok);
-  box.appendChild(meta);
-  return box;
-}
-
-function doneRow(agent) {
-  var row = el("div", "row done");
-  row.appendChild(el("i", "dot"));
-  row.appendChild(el("span", "id", agent.task || "—"));
-  row.appendChild(el("span", "name", agent.role + " ｜ " + (agent.description || "")));
-  row.appendChild(el("span", "num", dur(agent.elapsed)));
-  row.appendChild(el("span", "num", num(agent.tokens) + " tok"));
-  return row;
-}
-
-function taskRow(task) {
-  var active = ACTIVE.indexOf(task.state) >= 0;
-  var row = el("div", "row" + (active ? "" : " done"));
-  row.appendChild(el("i", "dot" + (active ? " on" : "")));
-  row.appendChild(el("span", "id", task.id));
-  row.appendChild(el("span", "name", task.name));
-  row.appendChild(el("span", "state", task.state));
-  row.appendChild(el("span", "num", task.owner || ""));
-  return row;
-}
-
-function fill(node, items, make) {
-  node.textContent = "";
-  items.forEach(function (item) { node.appendChild(make(item)); });
-}
-
-function render(state) {
-  document.getElementById("repo").textContent = state.repo;
-  document.title = "モニタ ｜ " + state.repo;
-
-  var t = state.tokens || {};
-  document.getElementById("tokens").textContent = num(t["合計"]);
-  document.getElementById("breakdown").textContent =
-    "出力 " + num(t["出力"]) + " ／ キャッシュ書込 " + num(t["キャッシュ書込"]) +
-    " ／ キャッシュ読出 " + num(t["キャッシュ読出"]) + " ／ 入力 " + num(t["入力"]);
-
-  var agents = state.agents || [];
-  var live = agents.filter(function (a) { return a.running; });
-  var done = agents.filter(function (a) { return !a.running; });
-
-  document.getElementById("running-count").textContent =
-    live.length ? "(" + live.length + ")" : "";
-  fill(document.getElementById("cards"), live, card);
-  document.getElementById("cards-empty").style.display = live.length ? "none" : "block";
-
-  document.getElementById("done-section").style.display = done.length ? "block" : "none";
-  fill(document.getElementById("done"), done.slice(0, 12), doneRow);
-
-  var tasks = state.tasks || [];
-  fill(document.getElementById("tasks"), tasks, taskRow);
-  document.getElementById("tasks-empty").style.display = tasks.length ? "none" : "block";
-
-  var notes = document.getElementById("notes");
-  notes.textContent = "";
-  (state.notes || []).forEach(function (text) {
-    notes.appendChild(el("div", null, text));
-  });
-
-  document.getElementById("pulse").classList.remove("stale");
-  document.getElementById("live").textContent =
-    new Date().toLocaleTimeString("ja-JP") + " 時点（" + state.refresh + "秒ごと更新）";
-}
-
-function tick() {
-  fetch("/api/state", { cache: "no-store" })
-    .then(function (res) { return res.json(); })
-    .then(render)
-    .catch(function () {
-      document.getElementById("pulse").classList.add("stale");
-      document.getElementById("live").textContent =
-        "モニタとの接続が切れた（自動終了したか、セッションが終わった）";
-    });
-}
-
-tick();
-setInterval(tick, 2000);
-</script>
+<body style="font-family:sans-serif;padding:2em;line-height:1.7">
+<h1>画面のファイルが見つからない</h1>
+<p>モニタ本体（<code>org-monitor.py</code>）と同じ場所に
+<code>org-monitor-page.html</code> を置くこと。配布物では2つで1組である。</p>
+<p>状態そのものは <a href="/api/state">/api/state</a> から読める。</p>
 </body>
-</html>
 """
+
+
+def load_page() -> str:
+    """画面のファイルを読む。要求のたびに読み直す。
+
+    毎回読み直すのは、画面を作り込むときに、書き換えたらそのまま再読み込み
+    で確かめられるようにするため。読むのは画面を開いたときだけで、2秒ごとの
+    状態の取得では読まない。
+    """
+    try:
+        with open(PAGE_FILE, encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return FALLBACK_PAGE
+
+
 
 
 if __name__ == "__main__":

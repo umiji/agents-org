@@ -26,7 +26,9 @@
 | `templates/tasks-README.md` | `.claude/templates/`（使うときに `docs/tasks/README.md` へ複写） | 詳細ファイルの置き場の説明 |
 | `scripts/org-check.py` | `.claude/scripts/` | **停滞検知と整合性検査。** Python 3.8 以降、標準ライブラリのみ |
 | `scripts/org-tokens.py` | `.claude/scripts/` | **トークン消費の集計。** タスク別・担当エージェント別・モデル別。同上 |
-| `settings.snippet.json` | — | 上の2本を自動で走らせる設定と、**ツールの実行許可の推奨値**。**既存の設定へ追記する**（後述） |
+| `scripts/org-monitor.py` | `.claude/scripts/` | **稼働状況のモニタ。** 動いている担当エージェント・タスク・トークンをブラウザで見せる。同上 |
+| `scripts/org-monitor-page.html` | `.claude/scripts/` | **モニタが出す画面。** 上のスクリプトと**2つで1組**。同じ場所へ置く |
+| `settings.snippet.json` | — | 上の3本を自動で走らせる設定と、**ツールの実行許可の推奨値**。**既存の設定へ追記する**（後述） |
 
 **オーケストレーターのエージェント定義ファイルは無い。** オーケストレーターは**メインセッション自身**である。サブエージェントは `AskUserQuestion` を使えず、PO へ問い合わせできないため、サブエージェントであり得ない。
 
@@ -43,6 +45,8 @@ cp -r /path/to/agents-org/org/skills/*        .claude/skills/
 mkdir -p .claude/scripts .claude/templates
 cp    /path/to/agents-org/org/scripts/org-check.py   .claude/scripts/
 cp    /path/to/agents-org/org/scripts/org-tokens.py  .claude/scripts/
+cp    /path/to/agents-org/org/scripts/org-monitor.py .claude/scripts/
+cp    /path/to/agents-org/org/scripts/org-monitor-page.html .claude/scripts/
 cp -r /path/to/agents-org/org/templates/*        .claude/templates/
 ```
 
@@ -71,13 +75,16 @@ Everything Claude Code / Superpowers 等が導入済みでも共存する前提�
 
 ### 検査と集計を自動で走らせる（`hooks`）
 
-hook は3件あり、走る場面（Claude Code が用意している呼び出し口の名前）が2種類ある。
+hook は4件あり、走る場面（Claude Code が用意している呼び出し口の名前）が2種類ある。
 
 | 呼び出し口 | 走るもの | 何のため |
 | --- | --- | --- |
 | `SessionStart`（セッションが始まったとき） | `org-check.py --hook` | 台帳の停滞検知と整合性検査 |
 | `SessionStart` | `org-tokens.py --update --hook` | 前のセッションまでのトークン消費を台帳へ取り込む |
+| `SessionStart` | `org-monitor.py --hook` | 稼働状況のモニタを立ち上げ、ブラウザで開く |
 | `SubagentStop`（担当エージェントが1体終わったとき） | `org-tokens.py --update --hook` | その担当が使った分を、終わった時点で記録する |
+
+モニタを hook にしてあるのは、**手順書に書いても実行されない回が出る**ためである（同じ理由が下の段にある）。ただし**タスク台帳が無いセッションでは何もせずに終わる**ので、この組織を動かしていない普通の作業でブラウザが開くことはない。
 
 トークン集計を2箇所へ入れてあるのは取りこぼしを防ぐためである。担当エージェントの終了時に記録するのが本筋だが、セッションが異常終了した場合や、担当エージェントを使わなかった場合の分が落ちる。セッション開始時にもう一度、**過去の分まで含めて**読み直すことで拾い直す。**この集計は何度走らせても結果が変わらない**ように作ってあるので、二重に走っても数字は狂わない。
 
@@ -232,6 +239,39 @@ python3 .claude/scripts/org-tokens.py --statusline  # 1行にまとめる
 **この台帳は手で書かない。** 消えても `--update` で会話記録から作り直せる。ただし Claude Code が古い会話記録を消した後は作り直せないので、**ファイルごと消さない**こと（記録が残っていないセッションの行は、集計時もそのまま保存される）。
 
 **金額は出さない。** 定額プランでは請求額と対応しないため、今は量だけを見る。金額への換算は今後の課題（`docs/decisions/16-token-visibility.md` の未確定事項）。
+
+### 稼働状況のモニタの使い方
+
+組織が動いている最中、PO から見えるのはメインセッションの画面だけで、**いま何体のエージェントが、どのタスクで、どれだけ動いているか**は分からない。それを1枚の画面に出すのが `org-monitor.py` である。
+
+セッション開始時に自動で立ち上がり、ブラウザが開く（タスク台帳があるときだけ）。手で起動することもできる。
+
+```sh
+python3 .claude/scripts/org-monitor.py            # 立ち上げてブラウザを開く
+python3 .claude/scripts/org-monitor.py --no-open  # 立ち上げるが、ブラウザは開かない
+python3 .claude/scripts/org-monitor.py --port 7500  # 待ち受けるポート番号を変える
+python3 .claude/scripts/org-monitor.py --once     # 状態を1回 JSON で出して終わる（確認用）
+```
+
+画面に出るのは3つだけである。
+
+| 出るもの | 中身 |
+| --- | --- |
+| 稼働中のエージェント | 担当（実装・レビュー等）、作業内容、タスクID、経過時間、そのエージェントが使ったトークン |
+| タスク台帳 | 索引 `docs/task-list-{project-name}.csv` の全タスク。動いているものが上 |
+| トークン消費 | このセッションの合計と、費目別の内訳 |
+
+**読むだけで、組織の動作には一切干渉しない。** モニタが落ちても、起動しなくても、組織はそのまま動く。
+
+仕組みの要点:
+
+- **稼働中かどうかの判定** — 担当エージェント1体につき Claude Code が書く小さなファイル（`agent-XXXX.meta.json`）の中に、起動を識別する番号が入っている。その番号がメインセッションの会話記録に「実行結果」として現れていなければ、まだ動いている
+- **トークンはタスク台帳（CSV）から読まない。** 台帳は hook のタイミングでしか更新されず遅れるため、会話記録を直接読む
+- **同じ機械の中からしか見えない**（`127.0.0.1` に限って待ち受ける）。外部の配信サーバ（CDN）からも何も読み込まないので、オフラインでも表示できる
+- **画面を閉じて10分で自動終了する。** タブを閉じ忘れてもプロセスが残らない
+- 同じリポジトリのモニタが既に動いていれば、二重に立てず、そのURLを開き直す
+
+将来ダッシュボードとして作り込む場合も、画面が読んでいるのは `/api/state` が返す JSON だけなので、**状態を組み立てる部分はそのままに、画面側だけを差し替えられる。** 画面は `org-monitor-page.html` という独立したファイルで、**要求のたびに読み直される**——書き換えたら、モニタを立て直さずに再読み込みするだけで確かめられる。
 
 ## まだ入っていないもの
 

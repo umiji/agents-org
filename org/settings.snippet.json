@@ -47,6 +47,11 @@
             "type": "command",
             "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-tokens.py\" --root \"${CLAUDE_PROJECT_DIR}\" --update --hook || python \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-tokens.py\" --root \"${CLAUDE_PROJECT_DIR}\" --update --hook",
             "timeout": 120
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-monitor.py\" --root \"${CLAUDE_PROJECT_DIR}\" --hook || python \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-monitor.py\" --root \"${CLAUDE_PROJECT_DIR}\" --hook",
+            "timeout": 30
           }
         ]
       }
