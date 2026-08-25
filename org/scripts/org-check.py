@@ -223,10 +223,34 @@ def build(root: str, index_path: str, today: dt.date) -> list[dict]:
     return tasks
 
 
+def stagnation_exempt(task: dict, state_of: dict) -> str | None:
+    """組織側の停滞として数えない理由。数えるべきものには None を返す。
+
+    停滞判定（check）と滞留日数の集計（summarize）は、必ずこの同じ判定を通す。
+    片方だけが除外を持っていると、組織が手を打っても動かないタスクが
+    「詰まっている工程」として報告され、指示の足りているタスクへ指示を足す、
+    という誤った対処に進む。実際にそれが起きたため関数に切り出してある。
+    """
+    state = task["state"]
+    if state in TERMINAL:
+        return "終端（完了・中止）"
+    if state == "保留":
+        return "意図して止めている"
+    if state == "PO確認待ち":
+        return "PO の回答待ち。組織側の停滞ではない"
+    if state == "未着手" and any(
+        blocking and state_of.get(dep_id) not in TERMINAL
+        for dep_id, blocking in task["deps"]
+    ):
+        return "依存先待ち。連鎖の根元だけを見ればよい"
+    return None
+
+
 def check(tasks: list[dict], days: int) -> tuple[list, list, list]:
     """(停滞候補, リマインド候補, 整合性の警告) を返す。"""
     stale, remind, warn = [], [], []
     known = {t["id"] for t in tasks if t["id"]}
+    state_of = {t["id"]: t["state"] for t in tasks}
 
     for t in tasks:
         row, tid, state = t["row"], t["id"], t["state"]
@@ -286,24 +310,19 @@ def check(tasks: list[dict], days: int) -> tuple[list, list, list]:
                 )
 
         # --- 停滞・リマインド ---
-        if state in TERMINAL or t["age"] is None:
+        if t["age"] is None:
             continue
         overdue = t["age"] >= days
 
         if state == "PO確認待ち":
-            # 組織側の停滞ではないので停滞に数えない。PO への通知として別に出す。
+            # 停滞には数えないが、PO への通知としては出す。
             if overdue:
                 qs = ", ".join(t["meta"].get("_blockers", [])) or "Q-ID の記載無し"
                 remind.append(f"{label}: {t['age']}日 未回答（{qs}）")
             continue
 
-        if state == "保留":
-            continue  # 意図して止めている
-        if state == "未着手" and any(
-            blocking and next((x["state"] for x in tasks if x["id"] == dep_id), None) not in TERMINAL
-            for dep_id, blocking in t["deps"]
-        ):
-            continue  # 依存先待ち。連鎖の根元だけを見ればよい
+        if stagnation_exempt(t, state_of):
+            continue
 
         if overdue:
             stale.append(f"{label} [{state} / {t['owner'] or UNASSIGNED}] "
@@ -334,9 +353,13 @@ def summarize(tasks: list[dict], days: int, open_questions: int | None) -> dict:
         or any(b and state_of.get(d) not in TERMINAL for d, b in t["deps"])
     ]
 
+    # 滞留日数は「組織が手を打てば動くもの」だけで測る。停滞判定と同じ除外を通す。
     ages = {}
     for state in [x for x in STATES if x not in TERMINAL] + [x for x in by_state if x not in STATES]:
-        vals = [t["age"] for t in by_state.get(state, []) if t["age"] is not None]
+        vals = [
+            t["age"] for t in by_state.get(state, [])
+            if t["age"] is not None and stagnation_exempt(t, state_of) is None
+        ]
         if vals:
             ages[state] = statistics.median(vals)
 
