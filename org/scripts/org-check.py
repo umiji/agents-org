@@ -21,6 +21,10 @@ Python 3.8 以降。標準ライブラリのみ。追加インストールは要
     python3 org-check.py --root path/to/repo
     python3 org-check.py --hook             セッション開始フックから呼ぶとき
 
+`python3` という名前のコマンドが無い環境（Windows の標準的な導入ではこれが普通）
+では `python` に読み替える。どちらが使えるかは実行環境ごとに違うため、
+セッション開始フックの設定（settings.snippet.json）は両方を順に試す形にしてある。
+
 終了コード:
     0  検出なし
     1  停滞候補または警告あり
@@ -470,7 +474,14 @@ def main(argv=None) -> int:
             return 0
         tasks = build(args.root, index_path, today)
     except LedgerError as e:
-        print(f"台帳を読めない: {e}", file=sys.stderr)
+        message = f"台帳を読めない: {e}"
+        if args.hook:
+            # Claude Code は終了コードが 0 のときだけ標準出力をセッションの文脈へ入れる。
+            # 台帳が壊れていることこそオーケストレーターへ届けたい情報なので、
+            # 標準エラーではなく標準出力へ出し、0 で終わる。
+            print(message)
+            return 0
+        print(message, file=sys.stderr)
         return 2
 
     if not tasks:

@@ -32,6 +32,8 @@ python3 org/scripts/org-check.py --root <...> --today 2026-08-20 --days 3  # 基
 python3 -c "import ast;ast.parse(open('org/scripts/org-check.py',encoding='utf-8').read())"  # 構文確認
 ```
 
+`python3` というコマンド名が無い環境（Windows では `python` だけのことが多い）では読み替える。セッション開始時に検査を走らせる設定（`org/settings.snippet.json`）は、`python3` を試して失敗したら `python` を試す形にしてある。
+
 **Python 3.8 以降、標準ライブラリのみ。** 任意の開発対象リポジトリへ配るため、追加インストールを要求しない。
 
 ## 正典ドキュメント
