@@ -130,6 +130,7 @@ docs/handover.md     このリポジトリでの作業の引き継ぎ記録。�
 docs/glossary.md     用語集（正典）。語の定義を変えたら、その語を使う決定記録も直す
 docs/requirements/   要件定義書と、その差分一覧（正典。版を切って残す）
 docs/decisions/      確定した仕様・設計判断の記録
+docs/experiments/    まだ確定していないものを、どう確かめるかと、確かめた結果。**判断は書かない**
 org/                 組織の実行時ファイル。開発対象リポジトリへ配置する配布物（org/README.md）
 tests/               org/scripts/ のスクリプトの回帰テスト。**配布しない**（層1に留まる）
 ```
@@ -185,7 +186,8 @@ docs/token-usage-{project-name}.csv トークン消費の記録（16）。**機�
 1. **トライアル先へ、修正した配布物を反映する** — 2026-08-25 の修正6件と、**トークン集計の一式（`org/scripts/org-tokens.py`・`org/settings.snippet.json`・`org/CLAUDE.md`・`org/README.md`・`org/skills/org-orchestrate/`）**と、**稼働状況のモニタ（`org/scripts/org-monitor.py`）**が届いていない。手でコピーし直す。**停滞検知スクリプトは、トライアル先が同じ不具合を独自に直しているため突き合わせが要る**
 2. **トークン消費の実測を溜める**（`16` の F）— 削減策はまだ決めない。数タスク分の記録が溜まるまで何が効くか分からない。**トライアル先で数タスク回った時点で、`--by task` と `--by model` を見て PO へ報告する**
 3. **残っている不足** — 専門知識のスキルが0本／人間用ビューの生成スクリプトが無い／**リリース・デプロイの工程が組織に存在しない**（PO の判断が要る）。**配布物のスクリプト3本には回帰テストが揃った**（`tests/` の3本）。ツールの実行許可の推奨値も入った（`docs/decisions/17-tool-permissions.md`）が、**推奨値の妥当性は実測で確かめていない** — トライアル先で数タスク回った時点で、初回点検の点検5（許可の確認が何回出たか）を見て決める
-4. **配布方式の判断**（PO）— トライアルが2つ目の導入先になり、**更新の追随ができない問題が実際に起きている**（`docs/decisions/14-open-questions.md` の論点1）。**今回トークン集計を足したことで、追随すべきファイルがさらに増えた**
+4. **Claude Code の Agent Teams を検証する** — 本体が公式に持つ「複数の Claude Code セッションを1つのチームとして動かす」実験的機能。**この組織の自前実装（担当エージェント間の直接通信の禁止・自作タスク台帳・PO確認待ちキュー・停滞検知）と4箇所で重なる。** 有効化できることまでは実測済みで、**対話セッション専用**と分かっている。手順・判定基準・記録欄は `docs/experiments/01-agent-teams.md`
+5. **配布方式の判断**（PO）— トライアルが2つ目の導入先になり、**更新の追随ができない問題が実際に起きている**（`docs/decisions/14-open-questions.md` の論点1）。**今回トークン集計を足したことで、追随すべきファイルがさらに増えた**
 
 **済んだもの**: 要件定義書 v0.2、エージェント定義（`org/agents/`）、スキル3本（`org/skills/`）、層2の規約と用語集（`org/CLAUDE.md`・`org/rules/`・`org/glossary.md`）、台帳の雛形（`org/templates/`）、停滞検知・整合性検査スクリプトとその回帰テスト（`org/scripts/org-check.py`・`tests/test_org_check.py`）、ツールの実行許可の推奨値（`org/settings.snippet.json` の `permissions`）、トークン消費の集計スクリプトとその回帰テスト（`org/scripts/org-tokens.py`・`tests/test_org_tokens.py`）、稼働状況のモニタとその回帰テスト（`org/scripts/org-monitor.py`・`tests/test_org_monitor.py`）。
 
