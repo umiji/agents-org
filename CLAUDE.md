@@ -13,24 +13,46 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - ここで作るのは **組織の定義**（エージェント、スキル、タスク管理規約、エスカレーション経路）であって、組織が作る**成果物としてのアプリケーション**ではない。
 - 「Webアプリを作れ」という指示が来た場合、それは通常このリポジトリへの実装依頼ではなく、**この組織を使って別のプロジェクトを動かす**という意味である可能性が高い。判断がつかない場合は確認すること。
 
-## 現在の状態（2026-08-20 時点）
+## 現在の状態（2026-08-25 時点）
 
-**要件定義書 v0.2 まで完了。配布物（組織の実行時ファイル）も一通り揃った。残るのは実運用。**
+**要件定義書 v0.2 まで完了。配布物も揃い、トライアル運用が始まっている。**
 
 - 要件定義書 v0.1 §23 が定めた12項目の確定作業は完了し、**v0.2 の本文へ取り込んだ**（後述）。
-- **`org/` に組織の実行時ファイルが入っている** — 層2の規約、用語集、5ロールのエージェント定義、オーケストレーターとセッション再開のスキル、停滞検知スクリプト。開発対象リポジトリへコピーして使う（`org/README.md`）。
-- **本リポジトリ自体にはビルド対象が無い。** 唯一の実行可能物は配布用のスクリプト1本である。
+- **`org/` に組織の実行時ファイルが入っている** — 層2の規約、用語集、5ロールのエージェント定義、オーケストレーターとセッション再開のスキル、台帳の雛形、停滞検知スクリプト、トークン消費の集計スクリプト、稼働状況のモニタ。開発対象リポジトリへコピーして使う（`org/README.md`）。
+- **PO が別の開発対象リポジトリ（SNS Agent）でトライアル運用中。** そこのオーケストレーターからの差し戻しを受けて、配布物へ修正を入れている（2026-08-25 に6件）。**組織が実際に動いて初めて分かることが、ここから入ってくる。**
+- **本リポジトリ自体にはビルド対象が無い。** 実行可能物は配布用のスクリプト3本と、そのテストだけである。
 
 ## よく使うコマンド
 
-配布物のスクリプト `org/scripts/org-check.py` は、開発対象リポジトリのタスク台帳を検査するものであり、本リポジトリには検査対象が無い。動作を確かめるときは、台帳を持つディレクトリを `--root` で指定する。
+配布物のスクリプト3本は、いずれも**開発対象リポジトリ**を見るものであり、本リポジトリには対象が無い。動作を確かめるときは `--root` で対象を指定する。
 
 ```sh
+# 停滞検知と整合性検査（タスク台帳を読む）
 python3 org/scripts/org-check.py --root <台帳のあるリポジトリ>              # 停滞検知と整合性検査
 python3 org/scripts/org-check.py --root <...> --summary                    # ゴール健全性の8指標
 python3 org/scripts/org-check.py --root <...> --today 2026-08-20 --days 3  # 基準日と日数を変える
+
+# トークン消費の集計（Claude Code の会話記録を読む）
+python3 org/scripts/org-tokens.py --root <対象リポジトリ> --update          # 会話記録を台帳へ取り込む
+python3 org/scripts/org-tokens.py --root <...> --by agent                  # 担当エージェント別
+python3 org/scripts/org-tokens.py --root <...> --by model                  # モデル別
+python3 org/scripts/org-tokens.py --root <...> --task T-007                # 1タスクの内訳
+
+# 稼働状況のモニタ（会話記録を読んでブラウザへ出す。読むだけで何も書かない）
+python3 org/scripts/org-monitor.py --root <対象リポジトリ>                 # 立ち上げてブラウザを開く
+python3 org/scripts/org-monitor.py --root <...> --once                     # 状態を1回 JSON で出す（確認用）
+python3 org/scripts/org-monitor.py --root <...> --no-open --port 7391      # ブラウザを開かずに立てる
+
+# 検証
+python3 tests/test_org_check.py                                            # 停滞検知・整合性検査の回帰テスト
+python3 tests/test_org_tokens.py                                           # トークン集計の回帰テスト
+python3 tests/test_org_monitor.py                                          # モニタの回帰テスト
 python3 -c "import ast;ast.parse(open('org/scripts/org-check.py',encoding='utf-8').read())"  # 構文確認
 ```
+
+トークン集計と稼働状況のモニタは `~/.claude/projects/` の下にある会話記録を読む。**開発対象リポジトリの外を読むのはこの2本だけである。** 検証で他人のリポジトリへ台帳を書き込みたくないときは、`--transcripts` で会話記録の置き場を差し替える（テストがこの方法を使っている）。
+
+`python3` というコマンド名が無い環境（Windows では `python` だけのことが多い）では読み替える。セッション開始時に検査を走らせる設定（`org/settings.snippet.json`）は、`python3` を試して失敗したら `python` を試す形にしてある。
 
 **Python 3.8 以降、標準ライブラリのみ。** 任意の開発対象リポジトリへ配るため、追加インストールを要求しない。
 
@@ -78,7 +100,7 @@ python3 -c "import ast;ast.parse(open('org/scripts/org-check.py',encoding='utf-8
 | トピック別・パス限定の規約 | `.claude/rules/*.md` |
 | 各ロールの定義 | `.claude/agents/*.md` |
 | 多段階の手順・チェックリスト | `.claude/skills/*/SKILL.md` |
-| 必ず実行させる処理（停滞検知・整合性検査） | hooks + スクリプト（§4.5） |
+| 必ず実行させる処理（停滞検知・整合性検査・トークン集計・モニタ起動） | hooks + スクリプト（§4.5） |
 | 組織の状態（タスク・PO確認待ち・引き継ぎ） | **開発対象リポジトリ**の `docs/` 配下（07 / 08 / 11） |
 
 ## 文書の3層構造
@@ -95,7 +117,7 @@ python3 -c "import ast;ast.parse(open('org/scripts/org-check.py',encoding='utf-8
 
 ## MVPスコープ外（§3.3）
 
-拡張性は考慮するが、**MVPでは作らない**: 非開発業務（SNS投稿等）、Claude Code 新規セッションの完全自動起動、24時間無人運転、Webダッシュボード、高度なKPI分析基盤、エージェント間の自由なネットワーク型通信、複数AIプロバイダー横断の実行基盤。
+拡張性は考慮するが、**MVPでは作らない**: 非開発業務（SNS投稿等）、Claude Code 新規セッションの完全自動起動、24時間無人運転、複雑なWebダッシュボード（**表示3項目・操作なしの簡易モニタはこれに当たらない**——`docs/decisions/18-agent-monitor.md`。作り込む段になったら PO の判断が要る）、高度なKPI分析基盤、エージェント間の自由なネットワーク型通信、複数AIプロバイダー横断の実行基盤。
 
 セッション引き継ぎは **MVPでは手動**（§15）。自動セッション監視・自動引き継ぎを実装しない。
 
@@ -108,8 +130,12 @@ docs/handover.md     このリポジトリでの作業の引き継ぎ記録。�
 docs/glossary.md     用語集（正典）。語の定義を変えたら、その語を使う決定記録も直す
 docs/requirements/   要件定義書と、その差分一覧（正典。版を切って残す）
 docs/decisions/      確定した仕様・設計判断の記録
+docs/experiments/    まだ確定していないものを、どう確かめるかと、確かめた結果。**判断は書かない**
 org/                 組織の実行時ファイル。開発対象リポジトリへ配置する配布物（org/README.md）
+tests/               org/scripts/ のスクリプトの回帰テスト。**配布しない**（層1に留まる）
 ```
+
+`tests/` は標準ライブラリの unittest だけで動き、`python3 tests/test_org_check.py`・`python3 tests/test_org_tokens.py`・`python3 tests/test_org_monitor.py` で走る。配布物が「追加インストールを要求しない」という制約で書かれている以上、その検証も同じ条件で走れなければ、配布先で確かめられないため。
 
 `docs/handover.md` は**このリポジトリ（層1）の作業**の引き継ぎであり、AI組織が開発対象リポジトリに書く引き継ぎ記録とは別物である。同じファイル名だが、置かれるリポジトリが違う。
 
@@ -124,6 +150,7 @@ docs/task-list-{project-name}.csv   タスク索引（07）
 docs/tasks/T-XXX.md                 タスク別の詳細記録。正典（07）
 docs/po-queue.md                    PO確認待ちキュー（08）
 docs/handover.md                    セッション引き継ぎ記録（11）
+docs/token-usage-{project-name}.csv トークン消費の記録（16）。**機械が書く。手で編集しない**
 ```
 
 **この2つを混同しない。** 本リポジトリにタスク台帳を作るのは、この組織を使って本リポジトリ自身を開発対象にすると PO が決めたときだけである。
@@ -142,6 +169,12 @@ docs/handover.md                    セッション引き継ぎ記録（11）
 | 11 | セッション引き継ぎ | `docs/decisions/11-session-handoff.md` |
 | 12 | エージェント追加方式 | `docs/decisions/12-agent-addition.md` |
 | （追加） | 実行形態と配置 | `docs/decisions/13-execution-form.md` |
+| （追加） | 未決の論点（選択肢と推奨案つき。**確定事項ではない**） | `docs/decisions/14-open-questions.md` |
+| （追加） | ブランチ運用と並列実行 | `docs/decisions/15-branch-and-parallel.md` |
+| （追加） | トークン消費の可視化 | `docs/decisions/16-token-visibility.md` |
+| （追加） | ツールの実行許可 | `docs/decisions/17-tool-permissions.md` |
+| （追加） | 稼働状況のモニタ（簡易UI） | `docs/decisions/18-agent-monitor.md` |
+| （追加） | Claude Code の Agent Teams を採るかどうか | `docs/decisions/19-agent-teams.md` |
 
 `13` は §23 の12項目には無いが、エージェント定義ファイルを書くために必要だったため確定させた。**オーケストレーターはメインセッションであり、サブエージェントではない**（`00` §1.1 と `08` からの帰結）。
 
@@ -151,11 +184,13 @@ docs/handover.md                    セッション引き継ぎ記録（11）
 
 **引き継ぎの詳細は `docs/handover.md` にある。新しいセッションはそこを先に読むこと。**
 
-1. **実際の開発対象で動かす**（PO の判断が要る）— 仕様も配布物も揃った。**運用しないと分からないことしか残っていない**
-2. **人間用ビューの生成スクリプト** — `06` 確定事項 A。層3のマスタから README と通し読み用の文書を組み立てる。ただし**層3のマスタが1つも存在しない今、作っても検証できない**。最初のドキュメントタスクが発生してからでよい
-3. **配布方式の判断**（PO）— 現状は `org/` の手動コピー。プラグイン機構でまとめる案がある（`13` の未確定事項）
+1. **トライアル先へ、修正した配布物を反映する** — 2026-08-25 の修正6件と、**トークン集計の一式（`org/scripts/org-tokens.py`・`org/settings.snippet.json`・`org/CLAUDE.md`・`org/README.md`・`org/skills/org-orchestrate/`）**と、**稼働状況のモニタ（`org/scripts/org-monitor.py`）**が届いていない。手でコピーし直す。**停滞検知スクリプトは、トライアル先が同じ不具合を独自に直しているため突き合わせが要る**
+2. **トークン消費の実測を溜める**（`16` の F）— 削減策はまだ決めない。数タスク分の記録が溜まるまで何が効くか分からない。**トライアル先で数タスク回った時点で、`--by task` と `--by model` を見て PO へ報告する**
+3. **残っている不足** — 専門知識のスキルが0本／人間用ビューの生成スクリプトが無い／**リリース・デプロイの工程が組織に存在しない**（PO の判断が要る）。**配布物のスクリプト3本には回帰テストが揃った**（`tests/` の3本）。ツールの実行許可の推奨値も入った（`docs/decisions/17-tool-permissions.md`）が、**推奨値の妥当性は実測で確かめていない** — トライアル先で数タスク回った時点で、初回点検の点検5（許可の確認が何回出たか）を見て決める
+4. **テスト担当とレビュー担当の間の直接通信を許すか**（PO）— PO が検討したいと述べた。**承認済みなのは「テスト → 実装」**（`docs/decisions/05-test-agent.md` 確定事項B）**であって、テストとレビューの間ではない。** 3経路の共通性は「実装への差し戻しであり、設計や要件を変えない」ことで、テストとレビューはどちらも判定する側にあたる。**増やすなら決定記録が要る**（`docs/decisions/12-agent-addition.md`）
+5. **配布方式の判断**（PO）— トライアルが2つ目の導入先になり、**更新の追随ができない問題が実際に起きている**（`docs/decisions/14-open-questions.md` の論点1）。**今回トークン集計を足したことで、追随すべきファイルがさらに増えた**
 
-**済んだもの**: 要件定義書 v0.2、エージェント定義（`org/agents/`）、スキル2本（`org/skills/`）、層2の規約と用語集（`org/CLAUDE.md`・`org/rules/`・`org/glossary.md`）、停滞検知・整合性検査スクリプト（`org/scripts/org-check.py`）。
+**済んだもの**: 要件定義書 v0.2、**Claude Code の Agent Teams の検証と採否の判断**（`docs/experiments/01-agent-teams.md` に結果、`docs/decisions/19-agent-teams.md` に判断。**採らない**。副産物として、規約としては在るのに成立していなかった §14.2 の直接通信を、宛先を渡す手順を配布物へ入れて成立させた）、エージェント定義（`org/agents/`）、スキル3本（`org/skills/`）、層2の規約と用語集（`org/CLAUDE.md`・`org/rules/`・`org/glossary.md`）、台帳の雛形（`org/templates/`）、停滞検知・整合性検査スクリプトとその回帰テスト（`org/scripts/org-check.py`・`tests/test_org_check.py`）、ツールの実行許可の推奨値（`org/settings.snippet.json` の `permissions`）、トークン消費の集計スクリプトとその回帰テスト（`org/scripts/org-tokens.py`・`tests/test_org_tokens.py`）、稼働状況のモニタとその回帰テスト（`org/scripts/org-monitor.py`・`tests/test_org_monitor.py`）。
 
 ### 確定作業の進め方（新しい論点が出たときも同じ）
 

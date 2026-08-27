@@ -1,12 +1,68 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git blame:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git branch --list:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(python3 .claude/scripts/org-check.py:*)",
+      "Bash(python .claude/scripts/org-check.py:*)",
+      "Bash(python3 .claude/scripts/org-tokens.py:*)",
+      "Bash(python .claude/scripts/org-tokens.py:*)"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean -f:*)",
+      "Bash(git checkout --:*)",
+      "Bash(git restore:*)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/.env)",
+      "Read(./**/.env.*)",
+      "Read(./**/*.pem)",
+      "Read(./**/id_rsa)",
+      "Read(./**/id_ed25519)",
+      "Read(./**/credentials.json)"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-check.py\" --root \"${CLAUDE_PROJECT_DIR}\" --hook",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-check.py\" --root \"${CLAUDE_PROJECT_DIR}\" --hook || python \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-check.py\" --root \"${CLAUDE_PROJECT_DIR}\" --hook",
             "timeout": 60
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-tokens.py\" --root \"${CLAUDE_PROJECT_DIR}\" --update --hook || python \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-tokens.py\" --root \"${CLAUDE_PROJECT_DIR}\" --update --hook",
+            "timeout": 120
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-monitor.py\" --root \"${CLAUDE_PROJECT_DIR}\" --hook || python \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-monitor.py\" --root \"${CLAUDE_PROJECT_DIR}\" --hook",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-tokens.py\" --root \"${CLAUDE_PROJECT_DIR}\" --update --hook || python \"${CLAUDE_PROJECT_DIR}/.claude/scripts/org-tokens.py\" --root \"${CLAUDE_PROJECT_DIR}\" --update --hook",
+            "timeout": 120
           }
         ]
       }
