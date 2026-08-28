@@ -242,6 +242,63 @@ class Test停滞の除外(Base):
         self.assertEqual(list(ages), ["実装中"])
 
 
+class Test依存の注記の読み取り(Base):
+    """依存が「ブロッカー」なのか「推奨」なのかの読み取り。
+
+    読み違えると、**着手できないはずのタスクが着手可能に見える。**
+    しかも黙って誤読するため、誰も気づけない。実際に、別方式の台帳
+    （task-cycle）から移ってきた `T-001 (blocker)` が推奨として
+    読まれていた——判定が日本語の「ブロッカー」を含むかだけを
+    見ていたため。
+
+    判定不能なときにどちらへ倒すかは、損の大きさで決めてある。
+    推奨と誤読して着手させるより、ブロッカーと誤読して止める方が安い。
+    """
+
+    def test_英語表記のブロッカーも依存として読む(self):
+        """移行してきた台帳がこの表記で入ってくる。"""
+        (self.fx
+         .task("T-001", state="実装中", updated="2026-08-22")
+         .task("T-002", state="未着手", updated="2026-08-15",
+               owner="未割当", deps="T-001 (blocker)"))
+        stale, _, warn = self.fx.check()
+        self.assertMentionsNothing(stale, "T-002")
+        self.assertMentionsNothing(warn, "T-002", "読めない")
+
+    def test_英語表記の推奨は依存として読まない(self):
+        """`recommended` を読み落として除外すると、逆に停滞が隠れる。"""
+        (self.fx
+         .task("T-001", state="実装中", updated="2026-08-24")
+         .task("T-002", state="未着手", updated="2026-08-15",
+               owner="未割当", deps="T-001 (recommended: faster this way)"))
+        stale, _, warn = self.fx.check()
+        self.assertMentions(stale, "T-002")
+        self.assertMentionsNothing(warn, "T-002", "読めない")
+
+    def test_どちらとも読めない注記は警告して安全側へ倒す(self):
+        """止めるのは安全側だが、黙って止めると理由が分からない。
+        除外すると同時に、書き直させる警告を必ず出す。"""
+        (self.fx
+         .task("T-001", state="実装中", updated="2026-08-22")
+         .task("T-002", state="未着手", updated="2026-08-15",
+               owner="未割当", deps="T-001（先に見ておくこと）"))
+        stale, _, warn = self.fx.check()
+        self.assertMentionsNothing(stale, "T-002")
+        self.assertMentions(warn, "T-002", "読めない")
+
+    def test_どちらとも読めない注記は滞留日数にも数えない(self):
+        """停滞と集計が同じ判定（stagnation_exempt）を通ることの、
+        判定不能の場合での固定。片方だけが安全側へ倒れると、
+        「停滞していないのに詰まっている工程」として現れる。"""
+        (self.fx
+         .task("T-001", state="実装中", updated="2026-08-22")
+         .task("T-002", state="未着手", updated="2026-08-15",
+               owner="未割当", deps="T-001（先に見ておくこと）"))
+        ages = self.fx.summary()["滞留日数の中央値"]
+        self.assertNotIn("未着手", ages)
+        self.assertIn("実装中", ages)
+
+
 # --------------------------------------------------------------------------
 # 2. 停滞とリマインドの切り分け
 # --------------------------------------------------------------------------
