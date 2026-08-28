@@ -19,6 +19,7 @@
 | `agents/org-documentation.md` | `.claude/agents/` | ドキュメントエージェント |
 | `skills/org-orchestrate/` | `.claude/skills/` | オーケストレーターの手順 |
 | `skills/org-session-resume/` | `.claude/skills/` | セッション再開の手順 |
+| `skills/org-init/` | `.claude/skills/` | **導入時の初期シーケンス。** 呼べるスキルを集め、担当エージェント5つへ割り当てを書き出す。**導入直後に1回だけ**走らせる |
 | `skills/org-first-run-check/` | `.claude/skills/` | **初回運用の点検手順。** 最初のタスクが1件完了したら使う |
 | `templates/T-XXX.md` | `.claude/templates/` | **タスク別ファイルの雛形。** コピーして使う |
 | `templates/task-list.csv` | `.claude/templates/`（使うときに `docs/task-list-{project-name}.csv` へ複写） | 索引のヘッダ行だけの空ファイル |
@@ -28,6 +29,7 @@
 | `scripts/org-tokens.py` | `.claude/scripts/` | **トークン消費の集計。** タスク別・担当エージェント別・モデル別。同上 |
 | `scripts/org-monitor.py` | `.claude/scripts/` | **稼働状況のモニタ。** 動いている担当エージェント・タスク・トークンをブラウザで見せる。同上 |
 | `scripts/org-monitor-page.html` | `.claude/scripts/` | **モニタが出す画面。** 上のスクリプトと**2つで1組**。同じ場所へ置く |
+| `scripts/org-skills.py` | `.claude/scripts/` | **この実行環境から呼べるスキルの収集。** 導入時の初期シーケンス（`skills/org-init/`）が使う。読むだけで何も書き換えない。同上 |
 | `scripts/org-docs.py` | `.claude/scripts/` | **層3ドキュメントの人間用ビューの生成。** マスタを結合して `docs/handbook.md` を作り、`README.md` の索引を差し替える。同上 |
 | `settings.snippet.json` | — | 上の3本を自動で走らせる設定と、**ツールの実行許可の推奨値**。**既存の設定へ追記する**（後述） |
 
@@ -49,6 +51,7 @@ cp    /path/to/agents-org/org/scripts/org-tokens.py  .claude/scripts/
 cp    /path/to/agents-org/org/scripts/org-monitor.py .claude/scripts/
 cp    /path/to/agents-org/org/scripts/org-monitor-page.html .claude/scripts/
 cp    /path/to/agents-org/org/scripts/org-docs.py    .claude/scripts/
+cp    /path/to/agents-org/org/scripts/org-skills.py  .claude/scripts/
 cp -r /path/to/agents-org/org/templates/*        .claude/templates/
 ```
 
