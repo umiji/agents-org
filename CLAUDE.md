@@ -195,6 +195,7 @@ docs/token-usage-{project-name}.csv トークン消費の記録（16）。**機�
 | （追加） | 稼働状況のモニタ（簡易UI） | `docs/decisions/18-agent-monitor.md` |
 | （追加） | Claude Code の Agent Teams を採るかどうか | `docs/decisions/19-agent-teams.md` |
 | （追加） | 役割ごとのスキル割り当てと、導入時の初期シーケンス | `docs/decisions/20-skill-assignment.md` |
+| （追加） | 決定ログを引けるようにする（索引の生成と、決定の失効の表し方） | `docs/decisions/21-decision-log-index.md` |
 
 `13` は §23 の12項目には無いが、エージェント定義ファイルを書くために必要だったため確定させた。**オーケストレーターはメインセッションであり、サブエージェントではない**（`00` §1.1 と `08` からの帰結）。
 
@@ -207,8 +208,9 @@ docs/token-usage-{project-name}.csv トークン消費の記録（16）。**機�
 1. **トライアル先へ、修正した配布物を反映する** — 2026-08-25 の修正6件と、**トークン集計の一式（`org/scripts/org-tokens.py`・`org/settings.snippet.json`・`org/CLAUDE.md`・`org/README.md`・`org/skills/org-orchestrate/`）**と、**稼働状況のモニタ（`org/scripts/org-monitor.py`）**が届いていない。手でコピーし直す。**停滞検知スクリプトは、トライアル先が同じ不具合を独自に直しているため突き合わせが要る**
 2. **トークン消費の実測を溜める**（`16` の F）— 削減策はまだ決めない。数タスク分の記録が溜まるまで何が効くか分からない。**トライアル先で数タスク回った時点で、`--by task` と `--by model` を見て PO へ報告する**
 3. **残っている不足** — ~~担当エージェントがスキルを1本も呼べない~~ **→ 対処済み**（`docs/decisions/20-skill-assignment.md` の作るもの1〜4を実装。定義の「使えるツール」へ `Skill` を足し、役割ごとの割り当てを本文へ書いた。**残るのは同記録の5と6**——初回点検への項目追加と、導入手順の書き換え）／**リリース・デプロイの工程が組織に存在しない**（PO の判断が要る）。**配布物のスクリプト4本には回帰テストが揃った**（`tests/` の4本）。ツールの実行許可の推奨値も入った（`docs/decisions/17-tool-permissions.md`）が、**推奨値の妥当性は実測で確かめていない** — トライアル先で数タスク回った時点で、初回点検の点検5（許可の確認が何回出たか）を見て決める
-4. **テスト担当とレビュー担当の間の直接通信を許すか**（PO）— PO が検討したいと述べた。**承認済みなのは「テスト → 実装」**（`docs/decisions/05-test-agent.md` 確定事項B）**であって、テストとレビューの間ではない。** 3経路の共通性は「実装への差し戻しであり、設計や要件を変えない」ことで、テストとレビューはどちらも判定する側にあたる。**増やすなら決定記録が要る**（`docs/decisions/12-agent-addition.md`）
-5. **配布方式の判断**（PO）— トライアルが2つ目の導入先になり、**更新の追随ができない問題が実際に起きている**（`docs/decisions/14-open-questions.md` の論点1）。**今回トークン集計を足したことで、追随すべきファイルがさらに増えた**
+4. **決定ログの索引を実装する** — 設計は確定済み（`docs/decisions/21-decision-log-index.md`。PO 承認 2026-08-28）。**作るものは同記録の E に9件挙げてある** — 索引を生成するスクリプト `org/scripts/org-decisions.py`（配布物6本目）とその回帰テスト、決定ログの雛形への2欄追加（`対象`／`上書き対象`）、書く条件の4つ目、索引を読む経路3箇所、配布物が使っている「決定記録」という語の修正（**開発対象リポジトリに `docs/decisions/` は存在せず、担当エージェントは存在しないものを探しに行かされている**）
+5. **テスト担当とレビュー担当の間の直接通信を許すか**（PO）— PO が検討したいと述べた。**承認済みなのは「テスト → 実装」**（`docs/decisions/05-test-agent.md` 確定事項B）**であって、テストとレビューの間ではない。** 3経路の共通性は「実装への差し戻しであり、設計や要件を変えない」ことで、テストとレビューはどちらも判定する側にあたる。**増やすなら決定記録が要る**（`docs/decisions/12-agent-addition.md`）
+6. **配布方式の判断**（PO）— トライアルが2つ目の導入先になり、**更新の追随ができない問題が実際に起きている**（`docs/decisions/14-open-questions.md` の論点1）。**今回トークン集計を足したことで、追随すべきファイルがさらに増えた**
 
 **済んだもの**: 要件定義書 v0.2、**Claude Code の Agent Teams の検証と採否の判断**（`docs/experiments/01-agent-teams.md` に結果、`docs/decisions/19-agent-teams.md` に判断。**採らない**。副産物として、規約としては在るのに成立していなかった §14.2 の直接通信を、宛先を渡す手順を配布物へ入れて成立させた）、エージェント定義（`org/agents/`）、スキル4本（`org/skills/`）、層2の規約と用語集（`org/CLAUDE.md`・`org/rules/`・`org/glossary.md`）、台帳の雛形（`org/templates/`）、停滞検知・整合性検査スクリプトとその回帰テスト（`org/scripts/org-check.py`・`tests/test_org_check.py`）、ツールの実行許可の推奨値（`org/settings.snippet.json` の `permissions`）、トークン消費の集計スクリプトとその回帰テスト（`org/scripts/org-tokens.py`・`tests/test_org_tokens.py`）、稼働状況のモニタとその回帰テスト（`org/scripts/org-monitor.py`・`tests/test_org_monitor.py`）、層3ドキュメントの人間用ビューの生成スクリプトとその回帰テスト（`org/scripts/org-docs.py`・`tests/test_org_docs.py`。決定は `docs/decisions/06-documentation-agent.md` の末尾に追記した）、**担当エージェントがスキルを呼べる形にする実装**（エージェント定義5つへ `Skill` と割り当て、層2の規約へ禁止、初期シーケンス `org/skills/org-init/`、収集スクリプト `org/scripts/org-skills.py` とその回帰テスト。設計は `docs/decisions/20-skill-assignment.md`）。
 
