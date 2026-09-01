@@ -20,11 +20,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 要件定義書 v0.1 §23 が定めた12項目の確定作業は完了し、**v0.2 の本文へ取り込んだ**（後述）。
 - **`org/` に組織の実行時ファイルが入っている** — 層2の規約、用語集、5ロールのエージェント定義、オーケストレーターとセッション再開のスキル、台帳の雛形、停滞検知スクリプト、トークン消費の集計スクリプト、稼働状況のモニタ。開発対象リポジトリへコピーして使う（`org/README.md`）。
 - **PO が別の開発対象リポジトリ（SNS Agent）でトライアル運用中。** そこのオーケストレーターからの差し戻しを受けて、配布物へ修正を入れている（2026-08-25 に6件）。**組織が実際に動いて初めて分かることが、ここから入ってくる。**
-- **本リポジトリ自体にはビルド対象が無い。** 実行可能物は配布用のスクリプト5本と、そのテストだけである。
+- **本リポジトリ自体にはビルド対象が無い。** 実行可能物は配布用のスクリプト6本と、そのテストだけである。
 
 ## よく使うコマンド
 
-配布物のスクリプト5本は、いずれも**開発対象リポジトリ**を見るものであり、本リポジトリには対象が無い。動作を確かめるときは `--root` で対象を指定する。
+配布物のスクリプト6本は、いずれも**開発対象リポジトリ**を見るものであり、本リポジトリには対象が無い。動作を確かめるときは `--root` で対象を指定する。
 
 ```sh
 # 停滞検知と整合性検査（タスク台帳を読む）
@@ -47,6 +47,10 @@ python3 org/scripts/org-monitor.py --root <...> --no-open --port 7391      # ブ
 python3 org/scripts/org-docs.py --root <対象リポジトリ>                    # handbook を作り、README の索引を差し替える
 python3 org/scripts/org-docs.py --root <...> --check                       # 書き込まず、古くなっていないかだけ見る
 
+# 決定ログの索引を作る（全タスクの決定を、対象ごとに束ねた一覧に並べる）
+python3 org/scripts/org-decisions.py --root <対象リポジトリ>                # docs/decisions-index.md を作り直す
+python3 org/scripts/org-decisions.py --root <...> --check                   # 書き込まず、古くなっていないかだけ見る
+
 # この実行環境から呼べるスキルを集める（導入時の初期シーケンスが使う。読むだけ）
 python3 org/scripts/org-skills.py --root <対象リポジトリ> --names          # 名前だけ（まずこれ）
 python3 org/scripts/org-skills.py --root <...> --search テスト             # 名前か説明に語を含むものだけ
@@ -58,6 +62,7 @@ python3 tests/test_org_tokens.py                                           # ト
 python3 tests/test_org_monitor.py                                          # モニタの回帰テスト
 python3 tests/test_org_docs.py                                             # 人間用ビュー生成の回帰テスト
 python3 tests/test_org_skills.py                                           # スキル収集の回帰テスト
+python3 tests/test_org_decisions.py                                        # 決定ログ索引の回帰テスト
 python3 -c "import ast;ast.parse(open('org/scripts/org-check.py',encoding='utf-8').read())"  # 構文確認
 ```
 
@@ -119,7 +124,7 @@ python3 -c "import ast;ast.parse(open('org/scripts/org-check.py',encoding='utf-8
 | トピック別・パス限定の規約 | `.claude/rules/*.md` |
 | 各ロールの定義 | `.claude/agents/*.md` |
 | 多段階の手順・チェックリスト | `.claude/skills/*/SKILL.md` |
-| 必ず実行させる処理（停滞検知・整合性検査・トークン集計・モニタ起動） | hooks + スクリプト（§4.5） |
+| 必ず実行させる処理（停滞検知・整合性検査・トークン集計・決定ログ索引の生成・モニタ起動） | hooks + スクリプト（§4.5） |
 | 組織の状態（タスク・PO確認待ち・引き継ぎ） | **開発対象リポジトリ**の `docs/` 配下（07 / 08 / 11） |
 
 ## 文書の3層構造
@@ -171,6 +176,7 @@ docs/tasks/T-XXX.md                 タスク別の詳細記録。正典（07）
 docs/po-queue.md                    PO確認待ちキュー（08）
 docs/handover.md                    セッション引き継ぎ記録（11）
 docs/token-usage-{project-name}.csv トークン消費の記録（16）。**機械が書く。手で編集しない**
+docs/decisions-index.md            決定ログ索引（21）。**機械が書く。手で編集しない**
 ```
 
 **この2つを混同しない。** 本リポジトリにタスク台帳を作るのは、この組織を使って本リポジトリ自身を開発対象にすると PO が決めたときだけである。
@@ -196,7 +202,7 @@ docs/token-usage-{project-name}.csv トークン消費の記録（16）。**機�
 | （追加） | 稼働状況のモニタ（簡易UI） | `docs/decisions/18-agent-monitor.md` |
 | （追加） | Claude Code の Agent Teams を採るかどうか | `docs/decisions/19-agent-teams.md` |
 | （追加） | 役割ごとのスキル割り当てと、導入時の初期シーケンス | `docs/decisions/20-skill-assignment.md` |
-| （追加） | 決定ログを引けるようにする（索引の生成と、決定の失効の表し方） | `docs/decisions/21-decision-log-index.md` |
+| （追加） | 決定ログを引けるようにする（索引の生成と、決定の失効の表し方）。**実装済み** | `docs/decisions/21-decision-log-index.md` |
 | （追加） | 組織が自分の運用課題を見つけ、PO へ改善案を出すサイクル（**要求として確定・設計は未確定**） | `docs/decisions/22-org-self-improvement.md` |
 | （追加） | テスト担当とレビュー担当の間の直接通信を許可する（承認済み経路が3つ→4つ） | `docs/decisions/23-test-review-channel.md` |
 | （追加） | 配布方式を手動コピーからプラグイン機構へ移す（**方式は確定・実装方式は未確定**） | `docs/decisions/24-distribution-plugin.md` |
@@ -211,13 +217,13 @@ docs/token-usage-{project-name}.csv トークン消費の記録（16）。**機�
 
 1. **トライアル先へ、修正した配布物を反映する** — 2026-08-25 の修正6件と、**トークン集計の一式（`org/scripts/org-tokens.py`・`org/settings.snippet.json`・`org/CLAUDE.md`・`org/README.md`・`org/skills/org-orchestrate/`）**と、**稼働状況のモニタ（`org/scripts/org-monitor.py`）**が届いていない。手でコピーし直す。**停滞検知スクリプトは、トライアル先が同じ不具合を独自に直しているため突き合わせが要る**
 2. **トークン消費の実測を溜める**（`16` の F）— 削減策はまだ決めない。数タスク分の記録が溜まるまで何が効くか分からない。**トライアル先で数タスク回った時点で、`--by task` と `--by model` を見て PO へ報告する**
-3. **残っている不足** — ~~担当エージェントがスキルを1本も呼べない~~ **→ 対処済み**（`docs/decisions/20-skill-assignment.md` の作るもの1〜4を実装。定義の「使えるツール」へ `Skill` を足し、役割ごとの割り当てを本文へ書いた。**残るのは同記録の5と6**——初回点検への項目追加と、導入手順の書き換え）／**リリース・デプロイの工程が組織に存在しない**（PO の判断が要る）。**配布物のスクリプト4本には回帰テストが揃った**（`tests/` の4本）。ツールの実行許可の推奨値も入った（`docs/decisions/17-tool-permissions.md`）が、**推奨値の妥当性は実測で確かめていない** — トライアル先で数タスク回った時点で、初回点検の点検5（許可の確認が何回出たか）を見て決める
-4. **プラグイン機構を調べ、配布方式を移す** — **方式は確定済み**（`docs/decisions/24-distribution-plugin.md`。PO 判断 2026-08-28。Claude Code のプラグイン機構＝スキル・担当エージェントの定義・フックをまとめて配る仕組みへ移す）。**実装方式は未確定なので、先に実物へ当たる**——何をどこへ置くと担当エージェントの定義・スキル・規約・スクリプト・フックが認識されるか、`.claude/rules/` の規約と Python スクリプト5本が同じ形で運べるか、`CLAUDE.md` への追記という形が取れるか。結果は `docs/experiments/03-plugin-distribution.md` へ記録票として残す（記録票に判断は書かない）。**これを次の項目より先にやる**——索引スクリプトが配布物6本目として増えるため、置き場が二度手間になる
-5. **決定ログの索引を実装する** — 設計は確定済み（`docs/decisions/21-decision-log-index.md`。PO 承認 2026-08-28）。**作るものは同記録の E に9件挙げてある** — 索引を生成するスクリプト `org/scripts/org-decisions.py`（配布物6本目）とその回帰テスト、決定ログの雛形への2欄追加（`対象`／`上書き対象`）、書く条件の4つ目、索引を読む経路3箇所、配布物が使っている「決定記録」という語の修正（**開発対象リポジトリに `docs/decisions/` は存在せず、担当エージェントは存在しないものを探しに行かされている**）
+3. **残っている不足** — ~~担当エージェントがスキルを1本も呼べない~~ **→ 対処済み**（`docs/decisions/20-skill-assignment.md` の作るもの1〜4を実装。定義の「使えるツール」へ `Skill` を足し、役割ごとの割り当てを本文へ書いた。**残るのは同記録の5と6**——初回点検への項目追加と、導入手順の書き換え）／**リリース・デプロイの工程が組織に存在しない**（PO の判断が要る）。**配布物のスクリプト6本すべてに回帰テストが揃った**（`tests/` の6本）。ツールの実行許可の推奨値も入った（`docs/decisions/17-tool-permissions.md`）が、**推奨値の妥当性は実測で確かめていない** — トライアル先で数タスク回った時点で、初回点検の点検5（許可の確認が何回出たか）を見て決める
+4. **プラグイン機構を調べ、配布方式を移す** — **方式は確定済み**（`docs/decisions/24-distribution-plugin.md`。PO 判断 2026-08-28。Claude Code のプラグイン機構＝スキル・担当エージェントの定義・フックをまとめて配る仕組みへ移す）。**実装方式は未確定なので、先に実物へ当たる**——何をどこへ置くと担当エージェントの定義・スキル・規約・スクリプト・フックが認識されるか、`.claude/rules/` の規約と Python スクリプト6本が同じ形で運べるか、`CLAUDE.md` への追記という形が取れるか。結果は `docs/experiments/03-plugin-distribution.md` へ記録票として残す（記録票に判断は書かない）。**当初は決定ログ索引より先にやる予定だったが、PO の指示で索引の実装を先に済ませた**（2026-09-01）。**その分、移行時に移し替えるスクリプトが6本になっている**
+5. ~~**決定ログの索引を実装する**~~ **→ 完了（2026-09-01）。** `docs/decisions/21-decision-log-index.md` の「作るもの」9件すべて。索引を生成するスクリプト `org/scripts/org-decisions.py`（配布物6本目）とその回帰テスト38件、決定ログの雛形への2欄追加（`対象`／`上書き対象`）、書く条件の4つ目、索引を読む経路3箇所、配布物が使っていた「決定記録」という語の修正。**索引は `docs/decisions-index.md`**（対象ごとに見出しで束ね、冒頭に対象の一覧を置く Markdown）**で、PO の指示により `決定` の列を足してある。** **残るのは効果の測定**（21 の G）——トライアル先の決定ログの件数を数え、**件数が少なければ新旧の比較そのものが成立しない**
 6. **組織の自己改善サイクルを設計する** — 要求は記録済み（`docs/decisions/22-org-self-improvement.md`）だが、**設計は未確定で6つの論点が残っている。** 上の4（プラグイン機構への移行）で配置が決まってからのほうが手戻りが少ない
 7. **リリース・デプロイの工程をどうするか**（PO 判断待ち）— **この組織にはリリース／デプロイの工程が存在せず、「完了」の実質が push までで終わっている。** 催促の対象
 
-**済んだもの**: 要件定義書 v0.2、**PO の判断3件の文書化**（テスト担当とレビュー担当の間の直接通信を許可＝`docs/decisions/23-test-review-channel.md` と配布物への反映／配布方式をプラグイン機構へ＝`docs/decisions/24-distribution-plugin.md`／担当エージェントの独立セッション化と進捗の可視化は Pending＝`docs/decisions/14-open-questions.md` の論点2・3）、**別プロジェクトへの導入手順書**（`docs/introduce-to-a-project.md`）、**Claude Code の Agent Teams の検証と採否の判断**（`docs/experiments/01-agent-teams.md` に結果、`docs/decisions/19-agent-teams.md` に判断。**採らない**。副産物として、規約としては在るのに成立していなかった §14.2 の直接通信を、宛先を渡す手順を配布物へ入れて成立させた）、エージェント定義（`org/agents/`）、スキル4本（`org/skills/`）、層2の規約と用語集（`org/CLAUDE.md`・`org/rules/`・`org/glossary.md`）、台帳の雛形（`org/templates/`）、停滞検知・整合性検査スクリプトとその回帰テスト（`org/scripts/org-check.py`・`tests/test_org_check.py`）、ツールの実行許可の推奨値（`org/settings.snippet.json` の `permissions`）、トークン消費の集計スクリプトとその回帰テスト（`org/scripts/org-tokens.py`・`tests/test_org_tokens.py`）、稼働状況のモニタとその回帰テスト（`org/scripts/org-monitor.py`・`tests/test_org_monitor.py`）、層3ドキュメントの人間用ビューの生成スクリプトとその回帰テスト（`org/scripts/org-docs.py`・`tests/test_org_docs.py`。決定は `docs/decisions/06-documentation-agent.md` の末尾に追記した）、**担当エージェントがスキルを呼べる形にする実装**（エージェント定義5つへ `Skill` と割り当て、層2の規約へ禁止、初期シーケンス `org/skills/org-init/`、収集スクリプト `org/scripts/org-skills.py` とその回帰テスト。設計は `docs/decisions/20-skill-assignment.md`）。
+**済んだもの**: 要件定義書 v0.2、**決定ログ索引の実装**（`org/scripts/org-decisions.py`・`tests/test_org_decisions.py` 38件。設計は `docs/decisions/21-decision-log-index.md`）、**PO の判断3件の文書化**（テスト担当とレビュー担当の間の直接通信を許可＝`docs/decisions/23-test-review-channel.md` と配布物への反映／配布方式をプラグイン機構へ＝`docs/decisions/24-distribution-plugin.md`／担当エージェントの独立セッション化と進捗の可視化は Pending＝`docs/decisions/14-open-questions.md` の論点2・3）、**別プロジェクトへの導入手順書**（`docs/introduce-to-a-project.md`）、**Claude Code の Agent Teams の検証と採否の判断**（`docs/experiments/01-agent-teams.md` に結果、`docs/decisions/19-agent-teams.md` に判断。**採らない**。副産物として、規約としては在るのに成立していなかった §14.2 の直接通信を、宛先を渡す手順を配布物へ入れて成立させた）、エージェント定義（`org/agents/`）、スキル4本（`org/skills/`）、層2の規約と用語集（`org/CLAUDE.md`・`org/rules/`・`org/glossary.md`）、台帳の雛形（`org/templates/`）、停滞検知・整合性検査スクリプトとその回帰テスト（`org/scripts/org-check.py`・`tests/test_org_check.py`）、ツールの実行許可の推奨値（`org/settings.snippet.json` の `permissions`）、トークン消費の集計スクリプトとその回帰テスト（`org/scripts/org-tokens.py`・`tests/test_org_tokens.py`）、稼働状況のモニタとその回帰テスト（`org/scripts/org-monitor.py`・`tests/test_org_monitor.py`）、層3ドキュメントの人間用ビューの生成スクリプトとその回帰テスト（`org/scripts/org-docs.py`・`tests/test_org_docs.py`。決定は `docs/decisions/06-documentation-agent.md` の末尾に追記した）、**担当エージェントがスキルを呼べる形にする実装**（エージェント定義5つへ `Skill` と割り当て、層2の規約へ禁止、初期シーケンス `org/skills/org-init/`、収集スクリプト `org/scripts/org-skills.py` とその回帰テスト。設計は `docs/decisions/20-skill-assignment.md`）。
 
 ### 確定作業の進め方（新しい論点が出たときも同じ）
 
