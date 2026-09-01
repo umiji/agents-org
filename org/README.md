@@ -31,11 +31,14 @@
 | `scripts/org-monitor-page.html` | `.claude/scripts/` | **モニタが出す画面。** 上のスクリプトと**2つで1組**。同じ場所へ置く |
 | `scripts/org-skills.py` | `.claude/scripts/` | **この実行環境から呼べるスキルの収集。** 導入時の初期シーケンス（`skills/org-init/`）が使う。読むだけで何も書き換えない。同上 |
 | `scripts/org-docs.py` | `.claude/scripts/` | **層3ドキュメントの人間用ビューの生成。** マスタを結合して `docs/handbook.md` を作り、`README.md` の索引を差し替える。同上 |
+| `scripts/org-decisions.py` | `.claude/scripts/` | **決定ログ索引の生成。** 全タスクの決定を、対象ごとに束ねた一覧（`docs/decisions-index.md`）に並べる。**決定の失効も、この索引の上でだけ表す。** 同上 |
 | `settings.snippet.json` | — | 上の3本を自動で走らせる設定と、**ツールの実行許可の推奨値**。**既存の設定へ追記する**（後述） |
 
 **オーケストレーターのエージェント定義ファイルは無い。** オーケストレーターは**メインセッション自身**である。サブエージェントは `AskUserQuestion` を使えず、PO へ問い合わせできないため、サブエージェントであり得ない。
 
 ## 導入
+
+**上から順に実行する形の手順書が、本リポジトリの `docs/introduce-to-a-project.md` にある。** 実際に導入するときはそちらを開くこと（前提の確認・入ったことの確認・つまずいたときの対処・更新への追随まで含む）。**以下はその中核であるファイルのコピーだけを抜き出したものである。**
 
 ```sh
 # 開発対象リポジトリのルートで
@@ -52,8 +55,18 @@ cp    /path/to/agents-org/org/scripts/org-monitor.py .claude/scripts/
 cp    /path/to/agents-org/org/scripts/org-monitor-page.html .claude/scripts/
 cp    /path/to/agents-org/org/scripts/org-docs.py    .claude/scripts/
 cp    /path/to/agents-org/org/scripts/org-skills.py  .claude/scripts/
+cp    /path/to/agents-org/org/scripts/org-decisions.py .claude/scripts/
 cp -r /path/to/agents-org/org/templates/*        .claude/templates/
 ```
+
+### コピーの直後に、必ずやる2つ
+
+**ファイルを置いただけでは組織は動かない。** 次の2つを飛ばすと、**失敗が見えない形で残る。**
+
+1. **セッションを開き直す。** Claude Code は、担当エージェントの定義・規約・設定を**セッションが始まった時点の内容で読み込む。** 置いただけでは、いま動いているセッションには効かない
+2. **導入時の初期シーケンスを1回だけ走らせる**（`skills/org-init/`）。メインセッションへ「組織を導入したので初期設定をして」と伝える。**この実行環境から呼べるスキルを集め、このリポジトリの技術構成と突き合わせ、担当エージェント5つの定義へ「使うスキル」を書き出す。** 走らせたあと**もう一度セッションを開き直し**、効いているかの確認まで済ませる
+
+**2 を飛ばすと、担当エージェントは、この環境に無いスキルを名指ししたまま動く。** 呼んで失敗するだけで、エラーは表に出ず、成果物も一応できあがる。**「効いていない」と気づく手段が無い。**
 
 **台帳そのもの（索引・詳細・キュー）は、この時点では作らない。** ゴールを受けたオーケストレーターが最初のタスクを登録する直前に、雛形から作る（手順は `skills/org-orchestrate/`）。空の台帳を先に置くと、組織が動いていないのか、動いて0件なのかが区別できない。
 
@@ -80,14 +93,16 @@ Everything Claude Code / Superpowers 等が導入済みでも共存する前提�
 
 ### 検査と集計を自動で走らせる（`hooks`）
 
-hook は4件あり、走る場面（Claude Code が用意している呼び出し口の名前）が2種類ある。
+hook は6件あり、走る場面（Claude Code が用意している呼び出し口の名前）が2種類ある。
 
 | 呼び出し口 | 走るもの | 何のため |
 | --- | --- | --- |
 | `SessionStart`（セッションが始まったとき） | `org-check.py --hook` | 台帳の停滞検知と整合性検査 |
 | `SessionStart` | `org-tokens.py --update --hook` | 前のセッションまでのトークン消費を台帳へ取り込む |
+| `SessionStart` | `org-decisions.py --hook` | 決定ログ索引を作り直す |
 | `SessionStart` | `org-monitor.py --hook` | 稼働状況のモニタを立ち上げ、ブラウザで開く |
 | `SubagentStop`（担当エージェントが1体終わったとき） | `org-tokens.py --update --hook` | その担当が使った分を、終わった時点で記録する |
+| `SubagentStop` | `org-decisions.py --hook` | その担当が決定ログへ追記していれば、索引へ載せる |
 
 モニタを hook にしてあるのは、**手順書に書いても実行されない回が出る**ためである（同じ理由が下の段にある）。ただし**タスク台帳が無いセッションでは何もせずに終わる**ので、この組織を動かしていない普通の作業でブラウザが開くことはない。
 
@@ -124,7 +139,7 @@ Claude Code は、シェルコマンドの実行やファイルの読み書き�
 | --- | --- |
 | `git status` / `git diff` / `git log` / `git show` / `git blame` / `git ls-files` / `git rev-parse` / `git branch --list` | すべて読むだけで、何も書き換えない。担当エージェントが着手前と報告前に必ず走らせる |
 | `git add` / `git commit` / `git push` | 規約が担当エージェントに実行させると定めている操作（`CLAUDE.md` の Git の節）。押し先は作業ブランチなので、未レビューのコードが既定ブランチへ載ることはない |
-| `python3 .claude/scripts/org-check.py` / `python .claude/scripts/org-tokens.py`（`python3` と `python` の両方） | 台帳の検査とトークン集計。どちらも読むだけで、書き換えるのはトークン消費の記録だけ |
+| `python3 .claude/scripts/org-check.py` / `python .claude/scripts/org-tokens.py` / `python .claude/scripts/org-decisions.py`（`python3` と `python` の両方） | 台帳の検査、トークン集計、決定ログ索引の生成。いずれも台帳を読むだけで、書き換えるのは**自分が生成する記録**（トークン消費の記録・決定ログ索引）だけ |
 
 **意図して許可していないもの**もある。載せなかったのは忘れたのではなく、**確認が出るべきだと判断したから**である。
 
@@ -181,6 +196,28 @@ Claude Code は、シェルコマンドの実行やファイルの読み書き�
 **`python3` というコマンド名は、どの環境にもあるわけではない。** Windows で python.org の配布物を入れた場合、存在するのは `python` だけで `python3` は無い（Microsoft Store 版と多くの Linux / macOS では逆に `python3` がある）。
 
 このため、セッション開始時に検査を走らせる設定（`settings.snippet.json`）は `python3` を試し、失敗したら `python` を試す形にしてある。**手で実行するときも、片方が「コマンドが見つからない」と言ったらもう片方に読み替える。** 以下の例はすべて `python3` と書いてあるが、この読み替えが要る環境がある。
+
+### 決定ログ索引の使い方
+
+**決定ログ**（タスク別ファイル `docs/tasks/T-XXX.md` の `## 決定ログ`）**は、書かれても引けなければ意味が無い。** 目的が「再燃防止」——同じ論点が別のタスクで違う結論でまた争われるのを防ぐこと——だからである。
+
+決定はタスク別ファイルの中に埋まっており、タスクは**決定の主題ではなく作業の順**で並ぶ。しかも完了タスクは規約上読み返されない。そこで索引を作る。
+
+```sh
+python3 .claude/scripts/org-decisions.py           # docs/decisions-index.md を作り直す
+python3 .claude/scripts/org-decisions.py --check   # 書き込まず、古くなっていないかだけ見る
+```
+
+| | |
+| --- | --- |
+| 出力 | `docs/decisions-index.md`。列は `対象` / `日付` / `要約` / `決定`（要旨） / `タスク` / `状態` |
+| 並び | `対象`（決定が支配する領域）ごとに束ね、その中は日付の新しい順 |
+| 対象 | **全タスク。完了・中止も含む**（読み返されないことが問題の原因だったため） |
+| 書き手 | **このスクリプトだけ。手で書かない。書き換えても次の生成で消える** |
+
+**決定の失効は、この索引の上でだけ表す。** 新しい決定の側に `- 上書き対象: T-003 2026-05-10` と書かせ、スクリプトが古い側の行の状態を `置き換え済み → T-021` に変える。**過去のタスク別ファイルは一文字も書き換えない**（この組織の「過去を書き換えず新項目を追記する」規約を守るため）。外の既成解（ADR ツール）は古いファイルの状態欄を書き換えるが、その方式は採らなかった。
+
+**書式が崩れている決定ログは警告として出る。** 最も多いのは `- 対象:` の書き忘れで、その決定は `未分類` の束へ入る（捨てはしない）。
 
 ### 停滞検知と整合性検査の使い方
 
