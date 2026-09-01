@@ -10,10 +10,10 @@
 
 from __future__ import annotations
 
-import csv
 import importlib.util
 import io
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -89,12 +89,34 @@ class Base(unittest.TestCase):
         return os.path.join(self.root, od.INDEX)
 
     def read_index(self):
-        """索引を読み、(先頭の注意書き, 行の一覧) を返す。"""
-        with open(self.index_path, encoding="utf-8", newline="") as f:
+        """索引を読み、(全文, 行の一覧) を返す。
+
+        `対象` は表の列ではなく見出しになっているので、読むときに行へ戻す。
+        """
+        with open(self.index_path, encoding="utf-8") as f:
             text = f.read()
-        first, _, rest = text.partition("\n")
-        rows = list(csv.DictReader(io.StringIO(rest)))
-        return first, rows
+        rows, target = [], None
+        for line in text.splitlines():
+            if line.startswith("## "):
+                head = line[3:].strip()
+                target = None if head == "対象の一覧" else head
+                continue
+            if target is None or not line.startswith("|"):
+                continue
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if cells == od.COLUMNS or set("".join(cells)) <= {"-"}:
+                continue  # 見出しの行と、その下の区切りの行
+            row = dict(zip(od.COLUMNS, cells))
+            row["対象"] = target
+            rows.append(row)
+        return text, rows
+
+    def targets(self):
+        """冒頭の「対象の一覧」に並んでいる対象を、出てくる順で返す。"""
+        with open(self.index_path, encoding="utf-8") as f:
+            text = f.read()
+        listing = text.split("## 対象の一覧", 1)[1].split("\n## ", 1)[0]
+        return re.findall(r"^- \[(.+?)\]\(#", listing, re.M)
 
 
 # --------------------------------------------------------------------------
@@ -147,8 +169,8 @@ class TestParse(Base):
 """)
         code, _ = self.run_script()
         self.assertEqual(code, 0)
-        banner, rows = self.read_index()
-        self.assertIn("手で編集しない", banner)
+        text, rows = self.read_index()
+        self.assertIn("手で書かない", text)
         self.assertEqual(len(rows), 1)
         row = rows[0]
         self.assertEqual(row["対象"], "認証")
@@ -161,10 +183,30 @@ class TestParse(Base):
     def test_列の並びは決めたとおり(self):
         self.task("T-001", "### 2026-01-01 何かを決めた\n- 対象: X\n- 決定: Y\n")
         self.run_script()
-        with open(self.index_path, encoding="utf-8", newline="") as f:
-            f.readline()  # 注意書き
-            header = f.readline().strip()
-        self.assertEqual(header, ",".join(od.COLUMNS))
+        with open(self.index_path, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("| " + " | ".join(od.COLUMNS) + " |", text)
+
+    def test_対象は表の列ではなく見出しになる(self):
+        self.task("T-001", "### 2026-01-01 何かを決めた\n- 対象: 認証\n- 決定: Y\n")
+        self.run_script()
+        with open(self.index_path, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("\n## 認証\n", text)
+        self.assertNotIn("対象", od.COLUMNS)
+
+    def test_冒頭に対象の一覧が出る(self):
+        # ここだけ読めば、どの領域に決定があるかが分かる、というのが索引の要点。
+        self.task("T-001", "### 2026-01-01 いち\n- 対象: 認証\n- 決定: A\n")
+        self.task("T-002", "### 2026-02-02 に\n- 対象: 配信\n- 決定: B\n")
+        self.run_script()
+        self.assertEqual(self.targets(), ["認証", "配信"])
+
+    def test_対象の一覧に件数が出る(self):
+        self.task("T-001", "### 2026-01-01 いち\n- 対象: 認証\n- 決定: A\n")
+        self.run_script()
+        with open(self.index_path, encoding="utf-8") as f:
+            self.assertIn("1件", f.read())
 
     def test_1つのタスクが決定を複数持てる(self):
         self.task("T-007", """### 2026-05-10 古いほう
@@ -358,13 +400,21 @@ class TestMalformed(Base):
         self.assertLessEqual(len(rows[0]["決定"]), od.SUMMARY_LIMIT + 1)
         self.assertTrue(rows[0]["決定"].endswith("…"))
 
-    def test_カンマや引用符を含んでもCSVが壊れない(self):
+    def test_カンマや引用符を含んでも表が壊れない(self):
         self.task("T-001", '### 2026-01-01 A, B, "C" を比べた\n- 対象: 認証, 認可\n- 決定: A, B ではなく "C"\n')
         self.run_script()
         _, rows = self.read_index()
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["対象"], "認証, 認可")
         self.assertEqual(rows[0]["決定"], 'A, B ではなく "C"')
+
+    def test_縦棒を含む決定は逃がす(self):
+        # 縦棒は表の列の区切りと読まれるため、そのままだと行が割れる。
+        self.task("T-001", "### 2026-01-01 決めた\n- 対象: 認証\n- 決定: A | B のどちらでもよい\n")
+        self.run_script()
+        text, rows = self.read_index()
+        self.assertIn("\\|", text)
+        self.assertEqual(len(rows), 1)
 
     def test_改行を含む値は1行に畳む(self):
         self.task("T-001", "### 2026-01-01 決めた\n- 対象: 認証\n- 決定: 一行目\n  二行目\n")
@@ -399,12 +449,14 @@ class TestGenerated(Base):
     def test_手で書き足した行は次の生成で消える(self):
         self.task("T-001", "### 2026-01-01 決めた\n- 対象: 認証\n- 決定: A\n")
         self.run_script()
-        with open(self.index_path, "a", encoding="utf-8", newline="") as f:
-            f.write("手書き,2026-01-01,勝手に足した行,,,\n")
+        with open(self.index_path, "a", encoding="utf-8") as f:
+            f.write("\n## 手書き\n\n| 日付 | 要約 | 決定 | タスク | 状態 |\n"
+                    "| --- | --- | --- | --- | --- |\n"
+                    "| 2026-01-01 | 勝手に足した行 | | | |\n")
         self.run_script()
-        _, rows = self.read_index()
+        text, rows = self.read_index()
         self.assertEqual(len(rows), 1)
-        self.assertNotIn("手書き", [r["対象"] for r in rows])
+        self.assertNotIn("手書き", text)
 
     def test_決定が全部消えたら索引も消す(self):
         p = self.task("T-001", "### 2026-01-01 決めた\n- 対象: 認証\n- 決定: A\n")

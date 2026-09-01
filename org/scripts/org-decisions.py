@@ -22,7 +22,7 @@
 
   正典    docs/tasks/T-XXX.md の `## 決定ログ`。担当エージェントが自分の
           タスクのファイルへ追記する。**過去の項目は書き換えない**
-  生成物  docs/decisions-index.csv。**このスクリプトだけが書く。手で書かない**
+  生成物  docs/decisions-index.md。**このスクリプトだけが書く。手で書かない**
 
 **決定が失効したことは、索引の上でだけ表す。** 新しい決定の側に
 `- 上書き対象: T-003 2026-05-10` と書かせ、このスクリプトが古い側の行の状態を
@@ -52,8 +52,6 @@ Python 3.8 以降。標準ライブラリのみ。追加インストールは要
 from __future__ import annotations
 
 import argparse
-import csv
-import io
 import os
 import re
 import sys
@@ -61,23 +59,31 @@ import sys
 # --- 置き場 ---------------------------------------------------------------
 
 TASKS_DIR = os.path.join("docs", "tasks")
-INDEX = os.path.join("docs", "decisions-index.csv")
+INDEX = os.path.join("docs", "decisions-index.md")
 
 # --- 索引の形 -------------------------------------------------------------
 
-COLUMNS = ["対象", "日付", "要約", "決定", "タスク", "状態"]
+TITLE = "# 決定ログ索引"
 
-# CSV には注釈の書き方が無いので、1列だけの行として先頭に置く。この索引を
-# 機械が読み直すことはない（書くのはこのスクリプトだけ）ので、これで困らない。
-BANNER = "この CSV は生成物である。手で編集しない。書き換えても次の生成で消える。正典は docs/tasks/T-XXX.md の ## 決定ログ"
+# 表の列。`対象` は見出しになるので、表そのものには入れない。
+COLUMNS = ["日付", "要約", "決定", "タスク", "状態"]
+
+GENERATED_NOTE = (
+    "> **このファイルは生成物である。手で書かない。書き換えても次の生成で消える。**\n"
+    "> 決定の正典は各タスクの `docs/tasks/T-XXX.md` にある `## 決定ログ` のほうで、\n"
+    "> このファイルは `org-decisions.py`（決定ログ索引の生成スクリプト）が作り直す。"
+)
 
 ACTIVE = "有効"
 SUPERSEDED = "置き換え済み → {}"
 UNCLASSIFIED = "未分類"
 
-# 索引は「開くべき1件を決める」ためのものなので、決定の中身は切り詰める。
-# 全文はタスク別ファイルにある。
-SUMMARY_LIMIT = 80
+# 索引は「開くべき1件を決める」ためのものなので、決定の中身は切り詰める。全文は
+# タスク別ファイルにある。**読む費用が決定の件数にしか比例しない**ことが、この
+# 索引の判定基準の1つだったためである。
+#
+# 対象は1〜3語なので、この上限に実際に当たるのは `決定` の欄だけである。
+SUMMARY_LIMIT = 120
 
 # --- 決定ログの書式 -------------------------------------------------------
 
@@ -270,28 +276,73 @@ def apply_supersede(decisions: list, warn: list) -> None:
 # 索引を組み立てる
 # --------------------------------------------------------------------------
 
+def group_key(target: str) -> tuple:
+    """対象の並び順。「未分類」の束は末尾へ置く。書き忘れであって領域名ではない。"""
+    return (1, "") if target == UNCLASSIFIED else (0, target)
+
+
 def sort_key(row: dict) -> tuple:
     """対象の名前順 → その中は日付の新しい順 → タスク番号の数の順。"""
     m = re.match(r"T-(\d+)$", row["タスク"])
     num = (0, int(m.group(1))) if m else (1, 0)
-    # 対象が「未分類」の束は末尾へ置く。書き忘れであって領域名ではないため。
-    group = (1, "") if row["対象"] == UNCLASSIFIED else (0, row["対象"])
-    return (group, tuple(-int(p) for p in row["日付"].split("-")), num)
+    return (group_key(row["対象"]),
+            tuple(-int(p) for p in row["日付"].split("-")), num)
+
+
+def anchor(target: str) -> str:
+    """見出しへのリンク先。空白をハイフンへ替えるだけの素朴な作り。
+
+    日本語の見出しはそのまま使えるので、ここで凝る必要が無い。
+    """
+    return "#" + target.strip().lower().replace(" ", "-")
+
+
+def cell(value: str) -> str:
+    """表の1マスに収める。縦棒は列の区切りと読まれるので逃がす。"""
+    return value.replace("|", "\\|")
+
+
+def group_by_target(rows: list) -> list:
+    """対象ごとに束ねる。並べ替え済みの列を前提に、順に見ていくだけ。"""
+    groups: list = []
+    for row in rows:
+        if not groups or groups[-1][0] != row["対象"]:
+            groups.append((row["対象"], []))
+        groups[-1][1].append(row)
+    return groups
 
 
 def render(decisions: list) -> str:
-    buf = io.StringIO()
-    buf.write(BANNER + "\n")
-    writer = csv.DictWriter(buf, fieldnames=COLUMNS, lineterminator="\n")
-    writer.writeheader()
-    for row in sorted(decisions, key=sort_key):
-        writer.writerow({k: row.get(k, "") for k in COLUMNS})
-    return buf.getvalue()
+    groups = group_by_target(sorted(decisions, key=sort_key))
+    out = [TITLE, "", GENERATED_NOTE, ""]
+
+    # 冒頭の対象一覧。**ここだけ読めば、どの領域に決定があるかが分かる。**
+    # 語をまだ知らない側が辿り着くための入口であり、索引の要点そのものである。
+    out.append("## 対象の一覧")
+    out.append("")
+    for target, items in groups:
+        live = sum(1 for r in items if r["状態"] == ACTIVE)
+        note = "{}件".format(len(items))
+        if live != len(items):
+            note += "（うち有効 {}件）".format(live)
+        out.append("- [{}]({}) — {}".format(cell(target), anchor(target), note))
+    out.append("")
+
+    for target, items in groups:
+        out.append("## " + target)
+        out.append("")
+        out.append("| " + " | ".join(COLUMNS) + " |")
+        out.append("| " + " | ".join("---" for _ in COLUMNS) + " |")
+        for r in items:
+            out.append("| " + " | ".join(cell(r.get(k, "")) for k in COLUMNS) + " |")
+        out.append("")
+
+    return "\n".join(out).rstrip("\n") + "\n"
 
 
 def read_index(path: str):
     try:
-        with open(path, encoding="utf-8", newline="") as f:
+        with open(path, encoding="utf-8") as f:
             return f.read()
     except OSError:
         return None
@@ -301,7 +352,7 @@ def write_index(path: str, text: str) -> None:
     parent = os.path.dirname(path)
     if parent:
         os.makedirs(parent, exist_ok=True)
-    with open(path, "w", encoding="utf-8", newline="") as f:
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
 
 

@@ -18,7 +18,7 @@ description: AI開発組織の作業を新しいセッションから再開す�
 | 3 | **台帳を検査する** — `python3 .claude/scripts/org-check.py` | **引き継ぎ記録は嘘をつきうる。信じる前に機械的な検査を通す** |
 | 4 | `docs/task-list-{project-name}.csv` | 索引。全体像 |
 | 5 | 進行中タスクの `docs/tasks/T-XXX.md` | **進行中のものだけ。完了済みは読まない** |
-| 5-b | **`docs/decisions-index.csv`（決定ログ索引）** | **完了済みタスクの決定も、ここでだけは読む。** 1決定1行なので費用が小さい |
+| 5-b | **`docs/decisions-index.md`（決定ログ索引）** | **完了済みタスクの決定も、ここでだけは読む。** 1決定1行なので費用が小さい |
 | 6 | `docs/po-queue.md` の未回答項目 | PO へ再度確認すべきものがあるか |
 | 7 | `git status` / `git log` | 未コミットの作業、直近のコミット |
 | 8 | 指標を集計する — `python3 .claude/scripts/org-check.py --summary` — し、`handover.md` の前回値と比較する | 前進しているかを判定する。**集計はスクリプト、判定はあなた** |

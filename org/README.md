@@ -31,7 +31,7 @@
 | `scripts/org-monitor-page.html` | `.claude/scripts/` | **モニタが出す画面。** 上のスクリプトと**2つで1組**。同じ場所へ置く |
 | `scripts/org-skills.py` | `.claude/scripts/` | **この実行環境から呼べるスキルの収集。** 導入時の初期シーケンス（`skills/org-init/`）が使う。読むだけで何も書き換えない。同上 |
 | `scripts/org-docs.py` | `.claude/scripts/` | **層3ドキュメントの人間用ビューの生成。** マスタを結合して `docs/handbook.md` を作り、`README.md` の索引を差し替える。同上 |
-| `scripts/org-decisions.py` | `.claude/scripts/` | **決定ログ索引の生成。** 全タスクの決定を1決定1行の CSV（`docs/decisions-index.csv`）に並べる。**決定の失効も、この索引の上でだけ表す。** 同上 |
+| `scripts/org-decisions.py` | `.claude/scripts/` | **決定ログ索引の生成。** 全タスクの決定を、対象ごとに束ねた一覧（`docs/decisions-index.md`）に並べる。**決定の失効も、この索引の上でだけ表す。** 同上 |
 | `settings.snippet.json` | — | 上の3本を自動で走らせる設定と、**ツールの実行許可の推奨値**。**既存の設定へ追記する**（後述） |
 
 **オーケストレーターのエージェント定義ファイルは無い。** オーケストレーターは**メインセッション自身**である。サブエージェントは `AskUserQuestion` を使えず、PO へ問い合わせできないため、サブエージェントであり得ない。
@@ -204,13 +204,13 @@ Claude Code は、シェルコマンドの実行やファイルの読み書き�
 決定はタスク別ファイルの中に埋まっており、タスクは**決定の主題ではなく作業の順**で並ぶ。しかも完了タスクは規約上読み返されない。そこで索引を作る。
 
 ```sh
-python3 .claude/scripts/org-decisions.py           # docs/decisions-index.csv を作り直す
+python3 .claude/scripts/org-decisions.py           # docs/decisions-index.md を作り直す
 python3 .claude/scripts/org-decisions.py --check   # 書き込まず、古くなっていないかだけ見る
 ```
 
 | | |
 | --- | --- |
-| 出力 | `docs/decisions-index.csv`。列は `対象` / `日付` / `要約` / `決定`（要旨） / `タスク` / `状態` |
+| 出力 | `docs/decisions-index.md`。列は `対象` / `日付` / `要約` / `決定`（要旨） / `タスク` / `状態` |
 | 並び | `対象`（決定が支配する領域）ごとに束ね、その中は日付の新しい順 |
 | 対象 | **全タスク。完了・中止も含む**（読み返されないことが問題の原因だったため） |
 | 書き手 | **このスクリプトだけ。手で書かない。書き換えても次の生成で消える** |

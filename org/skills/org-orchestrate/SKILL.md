@@ -86,7 +86,7 @@ CSV索引に行を追加し、`docs/tasks/T-XXX.md` を作る（形式は `.clau
 
 ### 割り当てる前に、その領域の過去の決定を引く
 
-**このタスクが触る領域（認証、投稿一覧、といった単位）の決定を、決定ログ索引 `docs/decisions-index.csv` で引く。**
+**このタスクが触る領域（認証、投稿一覧、といった単位）の決定を、決定ログ索引 `docs/decisions-index.md` で引く。**
 
 ```sh
 python3 .claude/scripts/org-decisions.py    # まず索引を作り直してから引く
