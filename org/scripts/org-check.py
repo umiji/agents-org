@@ -46,6 +46,20 @@ import re
 import statistics
 import sys
 
+# Windows のコンソールや、呼び出し元がパイプで受け取る場面では、Python の
+# 既定の出力文字コードが cp932 になる。この組織の出力は日本語で、記号（em
+# dash 等）を含むため、そのままだと UnicodeEncodeError で**処理そのものが
+# 落ちる**。落ちたことはセッション開始フックの中では見えないので、
+# 「走っているつもりで走っていない」状態になる。
+# 呼び出し側（フック、パイプ、CI）はいずれも UTF-8 で読むため、出力を
+# UTF-8 に固定する。文字化けと異常終了の両方がこれで消える。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):  # 差し替え済み / 閉じている場合
+        pass
+
+
 # --- 台帳の書式（.claude/rules/org-task-ledger.md と一致させること） ---
 
 COLUMNS = ["ID", "作成日", "更新日", "タスク名", "状態", "優先度", "担当", "依存タスク", "ドキュメント"]
@@ -374,8 +388,15 @@ def check(tasks: list[dict], days: int) -> tuple[list, list, list]:
             if state != "中止" and (assigned or state in IN_PROGRESS or state == "完了"):
                 empty = [n for n in REQUIRED_SECTIONS if is_blank(section(t["text"], n))]
                 if empty:
+                    # 引き金は「担当が付いている」だけではない。**担当が未割当
+                    # でも、状態が着手済み（設計中〜レビュー中）か「完了」なら
+                    # 出る。** 別方式の台帳から移してきた直後は担当が全件未割当
+                    # になるので、そこを「担当が付いている」と書くと、読んだ側
+                    # が台帳を見て食い違いに悩むことになる。
+                    trigger = ("担当が付いている" if assigned
+                               else f"状態が「{state}」になっている")
                     warn.append(
-                        f"{label}: 指示が未記入のまま担当が付いている → {' / '.join(empty)}"
+                        f"{label}: 指示が未記入のまま{trigger} → {' / '.join(empty)}"
                         "。レビューとテストが判定基準を持たないまま動く"
                     )
             if state == "完了" and is_blank(section(t["text"], "証拠")):

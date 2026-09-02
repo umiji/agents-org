@@ -78,6 +78,20 @@ import re
 import sys
 import unicodedata
 
+# Windows のコンソールや、呼び出し元がパイプで受け取る場面では、Python の
+# 既定の出力文字コードが cp932 になる。この組織の出力は日本語で、記号（em
+# dash 等）を含むため、そのままだと UnicodeEncodeError で**処理そのものが
+# 落ちる**。落ちたことはセッション開始フックの中では見えないので、
+# 「走っているつもりで走っていない」状態になる。
+# 呼び出し側（フック、パイプ、CI）はいずれも UTF-8 で読むため、出力を
+# UTF-8 に固定する。文字化けと異常終了の両方がこれで消える。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):  # 差し替え済み / 閉じている場合
+        pass
+
+
 # --- 台帳の書式（README と .claude/rules/org-task-ledger.md に一致させること） ---
 
 COLUMNS = [

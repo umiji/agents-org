@@ -56,13 +56,27 @@ cp    {agents-org}/org/scripts/org-decisions.py .claude/scripts/
 
 **`org/README.md` はコピーしない。** 配布物の説明であって、組織の実行時ファイルではない。
 
+### スクリプトが勝手に作る中間ファイルを、履歴に入れない
+
+Python は、スクリプトを実行すると同じ場所に `__pycache__/` という中間ファイルの置き場を勝手に作る（読み込みを速くするための、機械が使う写しである）。**実行のたびに中身が変わるので、履歴へ入れると毎回差分として現れ、本当の変更が埋もれる。**
+
+```sh
+echo ".claude/scripts/__pycache__/" >> .gitignore
+```
+
 ### 確認
 
 ```sh
 ls .claude/agents .claude/rules .claude/skills .claude/scripts .claude/templates
 ```
 
-担当エージェントの定義が5本（`org-design` / `org-implementation` / `org-review` / `org-test` / `org-documentation`）、スキルが4本（`org-orchestrate` / `org-session-resume` / `org-init` / `org-first-run-check`）、スクリプトが6本と画面のファイル1つ、あることを見る。
+次のものが揃っていることを見る。
+
+| 何が | 何本 | 名前 |
+| --- | --- | --- |
+| 担当エージェントの定義 | **6本** | `org-design`（設計） / `org-implementation`（実装） / `org-test`（テスト） / `org-review`（レビュー） / `org-documentation`（ドキュメント） / `org-improvement`（改善） |
+| スキル | **5本** | `org-orchestrate`（オーケストレーターの手順） / `org-session-resume`（セッションの引き継ぎ） / `org-init`（導入直後の初期設定） / `org-first-run-check`（最初の1タスクを回した直後の点検） / `org-improve`（組織自身の運用課題を改善へ回す手順） |
+| スクリプト | **6本**と画面のファイル1つ | `org-check.py` / `org-tokens.py` / `org-monitor.py`＋`org-monitor-page.html` / `org-docs.py` / `org-skills.py` / `org-decisions.py` |
 
 ### 台帳そのものは、まだ作らない
 
@@ -120,7 +134,22 @@ ls .claude/agents .claude/rules .claude/skills .claude/scripts .claude/templates
 
 **足す前に、そのコマンドが何を書き換えるかを確かめること。** テストの実行に見えて、実際にはデータベースを作り直す・外部へ通信する、といったものがある。
 
-### 3-b. Python の呼び出し名を確かめる
+### 3-b. 本番へ書き込むコマンドを、`deny` へ足す
+
+**この組織には、リリースやデプロイ（作ったものを本番の環境へ配って動かすこと）の工程が無い。** タスクの「完了」の実質は、変更を共有の場所へ送る（`git push`）ところまでである。
+
+つまり**担当エージェントが本番へ触れる場面は、そもそも組織の想定に無い。** 想定に無いものが事故で起きないよう、**本番を書き換えるコマンドは `permissions` の `deny`（実行を禁じる）へ入れる。** `allow`（確認なしで実行してよい）に入れないだけでは足りない——確認は出るが、通ってしまえば実行できるためである。
+
+```jsonc
+// 例: Cloudflare Workers で動くリポジトリ。実際のコマンドはそのリポジトリのものに置き換える
+"Bash(npm run cf:deploy:*)",     // 本番へ配る
+"Bash(npx wrangler deploy:*)",   // 同上
+"Bash(npx wrangler d1 execute:*)" // 本番のデータベースを書き換える
+```
+
+**足すのは、失敗が取り返せないものに限る。** 何でも禁じると、担当エージェントが動けなくなって PO への確認ばかりが増える。
+
+### 3-c. Python の呼び出し名を確かめる
 
 **`python3` というコマンド名は、どの環境にもあるわけではない。** Windows で python.org の配布物を入れた場合、存在するのは `python` だけである。
 

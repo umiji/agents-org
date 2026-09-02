@@ -357,6 +357,20 @@ class Test指示の未記入(Base):
         _, _, warn = self.fx.check()
         self.assertMentions(warn, "T-001", "指示が未記入", "完了条件")
 
+    def test_担当が未割当でも着手済みなら検出して引き金を正しく言う(self):
+        """**この警告は担当が付いているときだけ出るのではない。**
+
+        別方式の台帳から移してきた直後は担当が全件未割当になるが、状態は
+        着手済みのまま入ってくる。そこで「担当が付いている」と言われると、
+        読んだ側は台帳を見て食い違いに悩む。引き金は状態の側だと言う。
+        """
+        self.fx.task("T-001", state="実装中", owner="未割当",
+                     blank_sections=oc.REQUIRED_SECTIONS)
+        _, _, warn = self.fx.check()
+        line = self.assertMentions(warn, "T-001", "指示が未記入")
+        self.assertIn("状態が「実装中」", line)
+        self.assertNotIn("担当が付いている", line)
+
     def test_担当が未割当の未着手は指示欄を見ない(self):
         """まだ誰にも渡していないタスクへ指示の不足を警告すると、
         登録した瞬間から警告が出続け、警告そのものが読まれなくなる。"""
