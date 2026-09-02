@@ -19,7 +19,11 @@
   稼働中かどうか   担当エージェント1体につき `agent-XXXX.meta.json` という
                    小さなファイルが書かれる。その中の toolUseId（起動を
                    識別する番号）が、メインセッションの会話記録に「実行結果」
-                   の行として現れていなければ、まだ動いている。
+                   の行として現れたら、そのターンぶんの結果を返したという
+                   ことなので「待機」へ移す。逆に、その体自身の記録が伸びた
+                   ら「稼働中」へ移す。**状態は保持し、証拠があったときだけ
+                   動かす**（巡回のたびに計算し直すと、根拠を失った瞬間に
+                   全部が稼働中へ戻ってしまう）。
 
   担当と作業内容   同じ meta.json の agentType（どのエージェント定義で
                    起動したか）と description（何をさせているか）。
@@ -51,6 +55,7 @@ Python 3.8 以降。標準ライブラリのみ。追加インストールは要
     python3 org-monitor.py --root path/to/repo --once  状態を1回 JSON で出す
     python3 org-monitor.py --root ... --no-open        ブラウザを開かない
     python3 org-monitor.py --root ... --port 7391      待ち受けるポート番号
+    python3 org-monitor.py --root ... --session-file X 見張るセッションを名指しする
 
 `python3` という名前のコマンドが無い環境（Windows の標準的な導入ではこれが
 普通）では `python` に読み替える。
@@ -58,9 +63,17 @@ Python 3.8 以降。標準ライブラリのみ。追加インストールは要
 --hook を付けたときの振る舞い:
     1. タスク台帳が無ければ、何もせずに終わる（組織を動かしていない普通の
        セッションでブラウザが開くのを防ぐ）
-    2. 同じリポジトリのモニタが既に動いていれば、新しく立てずにそのURLを開く
+    2. 同じリポジトリのモニタが既に動いていれば、何もしない。そのURLを
+       1行だけ知らせる（ブラウザは開かない。開くのは初回だけ）
     3. 立てる場合は、自分を切り離した別プロセスとして起動し、すぐ戻る
        （フックは呼んだコマンドの終了を待つので、待たせない）
+    4. そのとき、**いま始まったセッションの記録の場所をフックから受け取り、
+       立てるモニタへ渡す。** フックは呼ばれるときに、そのセッションの情報
+       （識別子・記録の場所・作業ディレクトリ）を JSON で標準入力へ渡して
+       くるので、そこから取る。**これが無いと、モニタは「記録がいちばん
+       新しく更新されたセッション」を選ぶしかなく、立ち上がる瞬間にまだ
+       新しい記録が書かれていなければ、古いセッションを選んで固定して
+       しまう**（そのモニタは何も映さないまま動き続ける）
 
 終了コード:
     0  正常
@@ -87,6 +100,20 @@ import urllib.request
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+# Windows のコンソールや、呼び出し元がパイプで受け取る場面では、Python の
+# 既定の出力文字コードが cp932 になる。この組織の出力は日本語で、記号（em
+# dash 等）を含むため、そのままだと UnicodeEncodeError で**処理そのものが
+# 落ちる**。落ちたことはセッション開始フックの中では見えないので、
+# 「走っているつもりで走っていない」状態になる。
+# 呼び出し側（フック、パイプ、CI）はいずれも UTF-8 で読むため、出力を
+# UTF-8 に固定する。文字化けと異常終了の両方がこれで消える。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):  # 差し替え済み / 閉じている場合
+        pass
+
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # 待ち受けるポート番号の既定値と、埋まっていたときに探す範囲。
@@ -108,11 +135,6 @@ REFRESH = 2
 # 会話記録の読み直しがその回数だけ走らないようにする。
 MIN_REBUILD = 0.5
 
-# 対象セッションを探し直す間隔（秒）。この探索は ~/.claude/projects/ の下の
-# 会話記録を総なめするため、2秒ごとにやると重い。新しいセッションが始まった
-# ことに気づくのが最大この秒数だけ遅れるが、実用上は問題にならない。
-SESSION_RESCAN = 30
-
 # エージェント定義の名前を、画面に出す短い呼び名へ直す。
 # ここに無いものは名前をそのまま出す。組織へエージェントを追加したとき、
 # この表に足さなくても壊れないようにするため（拡張はファイル追加で済ませる）。
@@ -122,6 +144,7 @@ ROLE_NAMES = {
     "org-test": "テスト",
     "org-review": "レビュー",
     "org-documentation": "ドキュメント",
+    "org-improvement": "改善",
 }
 
 # タスク台帳の状態を、画面での並び順にする。動いているものを上へ。
@@ -129,6 +152,48 @@ STATE_ORDER = [
     "実装中", "テスト中", "レビュー中", "設計中", "テスト作成中",
     "PO確認待ち", "未着手", "保留", "完了", "中止",
 ]
+
+
+def hook_input() -> dict:
+    """フックが標準入力へ渡してくる JSON を読む。読めなければ空で返す。
+
+    Claude Code は、フックを呼ぶときに、そのセッションの識別子・会話記録の
+    場所・作業ディレクトリを JSON にして標準入力へ流す。**ここから記録の場所
+    が取れると、見張る相手を推測ではなく名指しで決められる。**
+
+    人が手で叩いたときは端末が標準入力につながっている。その場合は**読みに
+    行かない**——読むと、入力を待って止まってしまうため。
+    """
+    try:
+        if sys.stdin is None or sys.stdin.isatty():
+            return {}
+        raw = sys.stdin.read()
+    except (OSError, ValueError, UnicodeDecodeError):
+        return {}
+    try:
+        got = json.loads(raw)
+    except ValueError:
+        return {}
+    return got if isinstance(got, dict) else {}
+
+
+def session_from_file(path: str) -> dict | None:
+    """会話記録のパス1本から、見張る相手の情報を組み立てる。
+
+    ファイルがまだ存在しなくてよい。**セッションが始まった直後は、記録が
+    まだ書かれていないのが普通である。** 読み進める側は、無いファイルを
+    「まだ何も無い」として扱えるようにしてある。
+    """
+    if not path or not path.endswith(".jsonl"):
+        return None
+    session_id = os.path.basename(path)[: -len(".jsonl")]
+    if not session_id:
+        return None
+    return {
+        "id": session_id,
+        "main": path,
+        "subagents": os.path.join(os.path.dirname(path), session_id, "subagents"),
+    }
 
 
 def load_sibling(name: str, filename: str):
@@ -243,36 +308,56 @@ class Watcher:
     済ませるため。
     """
 
-    def __init__(self, root: str, transcripts: str | None = None) -> None:
+    def __init__(self, root: str, transcripts: str | None = None,
+                 session_file: str | None = None) -> None:
         self.root = os.path.abspath(root)
         self.transcripts = transcripts
-        self.reset()
-        self.last_scan = 0.0
-
-    def reset(self) -> None:
-        """見張る対象が変わったとき、数え直す。"""
+        # 見張る相手が名指しされているなら、探さずにそれを使う。
+        self.session_file = session_file
+        # 覚えたものを捨てて数え直す手段は、用意しない。**途中で見張る相手を
+        # 変えない**と決めたので、捨てる場面が存在しないためである。捨てられ
+        # る作りにしておくと、そこが必ず事故の入口になる（実際、見張る相手を
+        # 選び直すたびに全部捨てていたのが、表示が数秒で消える原因だった）。
         self.session: dict | None = None
         self.tail = Tail()
         self.main_counts = empty_counts()
-        self.done: set = set()          # 終わった担当エージェントの識別子
+        self.done: set = set()          # 結果が返った担当エージェントの識別子
         self.agents: dict = {}          # 識別子 -> 画面に出す1体分
 
     # --- 対象セッションを決める -------------------------------------------
 
-    def pick_session(self, now: float) -> None:
-        """このリポジトリで動いている、いちばん新しいセッションを選ぶ。
+    def pick_session(self) -> None:
+        """見張るセッションを1つ決める。**一度決めたら、二度と変えない。**
 
-        探索は会話記録を総なめするので、毎回はやらない。
+        ここでいうセッションは「ウィンドウを開いてから閉じるまで」であり、
+        会話記録のファイル1本がこれ1つに対応する。プロンプト1往復（ターン）
+        とは別のものである。
+
+        以前は一定間隔で「記録がいちばん新しく更新されたセッション」を選び
+        直していた。**複数のウィンドウで同じリポジトリを開いていると、その
+        選択が行ったり来たりし、乗り換えのたびに覚えたものを全部捨てていた。**
+        表示中のエージェントが数秒で消える・終わった体が根拠なく稼働中へ
+        戻る・一覧が丸ごと消える、はすべてここから出ていた。
+
+        引き換えに、**別のウィンドウで動いている担当エージェントは見えない。**
+        PO はこれを了解のうえでこの形を選んでいる（決定 2026-09-02）。
+
+        **相手が名指しされているなら、探さない。** セッション開始のフックが
+        「いま始まったセッションの記録の場所」を渡してくる場合がそれで、
+        推測が入らないぶん確実である。名指しが無いのは、人が手で立ち上げた
+        ときであり、そのときだけ「いちばん新しいもの」を選ぶ。
         """
-        if tokens is None:
+        if tokens is None or self.session is not None:
             return
-        if self.session and now - self.last_scan < SESSION_RESCAN:
+
+        named = session_from_file(self.session_file) if self.session_file else None
+        if named:
+            self.session = named
             return
-        self.last_scan = now
 
         found = tokens.find_sessions(self.root, self.transcripts)
         if not found:
-            return
+            return          # まだ記録が無い。次の巡回で改めて探す
 
         def freshness(session: dict) -> float:
             try:
@@ -280,31 +365,42 @@ class Watcher:
             except OSError:
                 return 0.0
 
-        newest = max(found, key=freshness)
-        if not self.session or newest["id"] != self.session["id"]:
-            self.reset()
-            self.session = newest
+        self.session = max(found, key=freshness)
 
     # --- 会話記録を読み進める ---------------------------------------------
 
-    def scan_main(self) -> None:
-        """メインセッション（オーケストレーター）の記録を読み進める。"""
+    def scan_main(self, now: float) -> None:
+        """メインセッション（オーケストレーター）の記録を読み進める。
+
+        ここで拾う「実行結果」の行が、**その担当エージェントがそのターンぶん
+        の結果を返した**という唯一の証拠である。証拠が来た体だけを待機へ移す。
+        """
         for entry in self.tail.read(self.session["main"]):
             for done_id in result_ids(entry):
                 self.done.add(done_id)
+                self.mark_idle(done_id, now)
             got = tokens.usage_of(entry)
             if got:
                 add_counts(self.main_counts, got[1])
 
-    def scan_agents(self) -> None:
-        """担当エージェントの記録を読み進める。新しく現れた体も拾う。"""
+    def scan_agents(self, now: float) -> None:
+        """担当エージェントの記録を読み進める。新しく現れた体も拾う。
+
+        **記録が伸びたことを、その体が動いている証拠として使う。** ファイル
+        の更新時刻は使わない——中身が1行も増えていなくても、触られただけで
+        進むためである（待機中の体の経過時間が伸び続ける原因になっていた）。
+        """
         pattern = os.path.join(self.session["subagents"], "*.meta.json")
         for meta_path in sorted(glob.glob(pattern)):
             agent_id = os.path.basename(meta_path)[: -len(".meta.json")]
             log_path = meta_path[: -len(".meta.json")] + ".jsonl"
             agent = self.agents.get(agent_id)
 
-            if agent is None:
+            # 初めて見つけた体は、そこまでの記録をまとめて読むことになる。
+            # **この読み込みは「いま動いている証拠」ではない**ので、状態を
+            # 動かさない（初期の状態は start_record が決める）。
+            first_sight = agent is None
+            if first_sight:
                 agent = self.start_record(agent_id, meta_path, log_path)
                 if agent is None:
                     continue
@@ -315,15 +411,15 @@ class Watcher:
                 # 時点ではまだ書かれていないことがあるので、取れるまで試す。
                 agent["task"] = tokens.agent_task(log_path)
 
+            grew = False
             for entry in self.tail.read(log_path):
+                grew = True
                 got = tokens.usage_of(entry)
                 if got:
                     add_counts(agent["counts"], got[1])
 
-            try:
-                agent["last"] = os.path.getmtime(log_path)
-            except OSError:
-                pass
+            if grew and not first_sight:
+                self.mark_running(agent, now)
 
     def start_record(self, agent_id: str, meta_path: str, log_path: str):
         """新しく現れた担当エージェント1体分の入れ物を作る。"""
@@ -335,17 +431,71 @@ class Watcher:
             return None
 
         role = meta.get("agentType") or "不明"
+        tool_use_id = meta.get("toolUseId") or ""
+        # 見つけた時点で既に結果が返っている（＝モニタを立てる前に終わって
+        # いた）ことがある。その場合は最初から待機で置く。
+        running = bool(tool_use_id) and tool_use_id not in self.done
         return {
             "id": agent_id,
             "role": ROLE_NAMES.get(role, role),
             "agent_type": role,
             "description": meta.get("description") or "",
-            "tool_use_id": meta.get("toolUseId") or "",
+            "tool_use_id": tool_use_id,
+            "log": log_path,
             "task": tokens.agent_task(log_path) if os.path.exists(log_path) else "",
             "started": started,
-            "last": started,
+            "running": running,
+            "active_since": started if running else None,
+            "elapsed": 0.0,          # 閉じた区間の合計（秒）
             "counts": empty_counts(),
         }
+
+    # --- 状態の遷移 --------------------------------------------------------
+    #
+    # 状態は2つしか持たない。
+    #
+    #   稼働中   いま動いている（自分の記録が伸びた）
+    #   待機     そのターンぶんの結果は返した。**呼べば文脈を保ったまま続き
+    #            ができる**ので、終わったわけではない
+    #
+    # 「終了」という状態は持たない。担当エージェントを名指しで閉じる手段が
+    # 無く、同じセッションのエージェントは必ず全部同時に終わるため、終了は
+    # エージェント1体ごとの状態ではなく**セッションの属性**だからである。
+    # そしてこのモニタは見張っている1セッションしか映さないので、映っている
+    # 間はそのセッションが生きている。
+    #
+    # **遷移は、証拠があったときだけ起こす。**
+
+    def mark_running(self, agent: dict, now: float) -> None:
+        """記録が伸びた＝動いている。待機からの再開なら、新しい区間を開く。"""
+        if agent["running"]:
+            return
+        agent["running"] = True
+        agent["active_since"] = now
+
+    def mark_idle(self, tool_use_id: str, now: float) -> None:
+        """結果が返った＝待機へ移る。開いていた区間を閉じて足し込む。"""
+        for agent in self.agents.values():
+            if agent["tool_use_id"] != tool_use_id or not agent["running"]:
+                continue
+            start = agent["active_since"]
+            agent["running"] = False
+            agent["active_since"] = None
+            if start is not None:
+                end = min(self.wrote_last(agent, now), now)
+                agent["elapsed"] += max(0.0, end - start)
+
+    def wrote_last(self, agent: dict, now: float) -> float:
+        """区間を閉じる時刻。その体の記録に最後に書かれた時刻を使う。
+
+        更新時刻をここで**1回だけ**読むのは、閉じた区間はもう動かないから
+        である。毎回読み直すと、ファイルが触られるたびに待機中の体の経過時間
+        が伸びる（これが「終了した欄に入っているのに時間が伸びる」の原因）。
+        """
+        try:
+            return os.path.getmtime(agent["log"])
+        except OSError:
+            return now
 
     # --- タスク台帳 --------------------------------------------------------
 
@@ -388,10 +538,22 @@ class Watcher:
         if tokens is None:
             notes.append("会話記録の読み取り部品（org-tokens.py）が見つからない")
         else:
-            self.pick_session(now)
+            self.pick_session()
             if self.session:
-                self.scan_main()
-                self.scan_agents()
+                # **順番に意味がある。** 先に「記録が伸びた体」を稼働中にし、
+                # そのあとで「結果が返った体」を待機へ移す。逆にすると、結果
+                # が返ったのと同じ巡回で読んだ末尾の数行が、待機へ移した体を
+                # そのまま稼働中へ押し戻してしまう。
+                self.scan_agents(now)
+                self.scan_main(now)
+                if not os.path.exists(self.session["main"]):
+                    # 名指しで見張っている相手の記録が、まだ書かれていない。
+                    # セッションが始まった直後は普通のことなので、異常では
+                    # なく「まだ何も無い」と伝える。
+                    notes.append(
+                        "見張るセッションの記録がまだ読めない（始まった直後なら"
+                        "そのうち出る）: {}".format(self.session["main"])
+                    )
             else:
                 notes.append("このリポジトリの会話記録がまだ見つからない")
 
@@ -421,17 +583,23 @@ class Watcher:
         }
 
     def view(self, agent: dict, now: float) -> dict:
-        """1体分を、画面が扱える形へ直す。"""
-        running = bool(agent["tool_use_id"]) and agent["tool_use_id"] not in self.done
-        end = now if running else max(agent["last"], agent["started"])
+        """1体分を、画面が扱える形へ直す。
+
+        **ここで状態を計算し直さない。** 持っているものをそのまま出す。
+        経過時間は「閉じた区間の合計 ＋ いま開いている区間」であり、待機中の
+        体には開いている区間が無いので、それ以上は伸びない。
+        """
+        elapsed = agent["elapsed"]
+        if agent["running"] and agent["active_since"] is not None:
+            elapsed += max(0.0, now - agent["active_since"])
         return {
             "id": agent["id"],
             "role": agent["role"],
             "description": agent["description"],
             "task": agent["task"],
-            "running": running,
+            "running": agent["running"],
             "started": agent["started"],
-            "elapsed": max(0.0, end - agent["started"]),
+            "elapsed": max(0.0, elapsed),
             "tokens": sum(agent["counts"].values()),
         }
 
@@ -533,9 +701,9 @@ def find_running(root: str, base: int, span: int) -> str | None:
 
 
 def serve(root: str, port: int, span: int, transcripts: str | None,
-          idle: int, open_browser: bool) -> int:
+          idle: int, open_browser: bool, session_file: str | None = None) -> int:
     """モニタを立てて、待ち受けを始める。"""
-    watcher = Watcher(root, transcripts)
+    watcher = Watcher(root, transcripts, session_file)
     server = None
     for candidate in range(port, port + span):
         try:
@@ -615,6 +783,8 @@ def main(argv=None) -> int:
     parser.add_argument("--span", type=int, default=PORT_SPAN,
                         help="ポートが埋まっていたときに探す個数")
     parser.add_argument("--transcripts", help="会話記録の置き場（検証用に差し替える）")
+    parser.add_argument("--session-file",
+                        help="見張るセッションの会話記録（フックから渡される）")
     parser.add_argument("--idle-timeout", type=int, default=IDLE_TIMEOUT,
                         help="画面から通信が来なくなってから終了するまでの秒数（0で無効）")
     parser.add_argument("--no-open", action="store_true", help="ブラウザを開かない")
@@ -625,7 +795,7 @@ def main(argv=None) -> int:
     root = os.path.abspath(args.root)
 
     if args.once:
-        state = Watcher(root, args.transcripts).state()
+        state = Watcher(root, args.transcripts, args.session_file).state()
         print(json.dumps(state, ensure_ascii=False, indent=2))
         return 0 if state["session"] else 1
 
@@ -633,7 +803,7 @@ def main(argv=None) -> int:
         return run_from_hook(args, root)
 
     return serve(root, args.port, args.span, args.transcripts,
-                 args.idle_timeout, not args.no_open)
+                 args.idle_timeout, not args.no_open, args.session_file)
 
 
 def run_from_hook(args, root: str) -> int:
@@ -641,17 +811,25 @@ def run_from_hook(args, root: str) -> int:
     if check is None or not check.find_index(root):
         return 0                   # 組織を動かしていないセッション。何もしない
 
+    # **いま始まったセッションの記録の場所を、フックの入力から取る。**
+    # 取れれば、立てるモニタは相手を推測せずに済む。取れなくても動く
+    # （そのときは「いちばん新しい記録」を選ぶ、これまでの形になる）。
+    session_file = args.session_file or hook_input().get("transcript_path") or ""
+
     running = find_running(root, args.port, args.span)
     if running:
-        if not args.no_open:
-            webbrowser.open(running)
-        print("モニタ: {} （既に動いているものを開いた）".format(running))
+        # **開き直さない。** セッションを開くたびに同じタブが立ち上がるのが
+        # 煩わしい、という報告があったため。URL を1行出しておけば、フックの
+        # 出力はセッションの文脈へ入るので見失わない。開くのは初回だけになる。
+        print("モニタ: {} （既に動いている。ブラウザは開かない）".format(running))
         return 0
 
     child = ["--root", root, "--port", str(args.port), "--span", str(args.span),
              "--idle-timeout", str(args.idle_timeout)]
     if args.transcripts:
         child += ["--transcripts", args.transcripts]
+    if session_file:
+        child += ["--session-file", session_file]
     if args.no_open:
         child.append("--no-open")
 

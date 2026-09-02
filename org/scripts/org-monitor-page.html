@@ -64,7 +64,7 @@ h2 b { color: var(--dim); font-weight: 600; }
         font-family: var(--mono); font-size: 12px; color: var(--faint); }
 .meta b { color: var(--text); font-weight: 600; }
 
-/* --- 終了済み・タスク --- */
+/* --- 待機中・タスク --- */
 .rows { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
 .row { display: flex; align-items: center; gap: 12px; padding: 7px 14px;
        background: var(--panel); border-top: 1px solid var(--line); font-size: 13px; }
@@ -79,9 +79,11 @@ h2 b { color: var(--dim); font-weight: 600; }
 .row .state { font-size: 12px; color: var(--dim); min-width: 84px; }
 .row .num { font-family: var(--mono); font-size: 12px; color: var(--faint);
             text-align: right; min-width: 88px; }
-.row.done .name, .row.done .state { color: var(--faint); }
+.row.dim .name, .row.dim .state { color: var(--faint); }
 
 .empty { color: var(--faint); font-size: 13px; padding: 16px 0; }
+.hint { font-size: 11.5px; color: var(--faint); font-weight: 400;
+        letter-spacing: 0; text-transform: none; margin-left: 9px; }
 .notes { margin-top: 22px; font-size: 12.5px; color: var(--faint); }
 .notes div { border-left: 2px solid var(--line); padding-left: 10px;
              margin-top: 5px; }
@@ -111,9 +113,11 @@ h2 b { color: var(--dim); font-weight: 600; }
   </div>
 </section>
 
-<section id="done-section" style="display:none">
-  <h2>終了したエージェント</h2>
-  <div class="rows" id="done"></div>
+<section id="idle-section" style="display:none">
+  <h2>待機中のエージェント
+    <span class="hint">そのターンぶんの結果は返した。呼べば文脈を保ったまま続きができる</span>
+  </h2>
+  <div class="rows" id="idle"></div>
 </section>
 
 <section>
@@ -162,8 +166,8 @@ function card(agent) {
   return box;
 }
 
-function doneRow(agent) {
-  var row = el("div", "row done");
+function idleRow(agent) {
+  var row = el("div", "row dim");
   row.appendChild(el("i", "dot"));
   row.appendChild(el("span", "id", agent.task || "—"));
   row.appendChild(el("span", "name", agent.role + " ｜ " + (agent.description || "")));
@@ -174,7 +178,7 @@ function doneRow(agent) {
 
 function taskRow(task) {
   var active = ACTIVE.indexOf(task.state) >= 0;
-  var row = el("div", "row" + (active ? "" : " done"));
+  var row = el("div", "row" + (active ? "" : " dim"));
   row.appendChild(el("i", "dot" + (active ? " on" : "")));
   row.appendChild(el("span", "id", task.id));
   row.appendChild(el("span", "name", task.name));
@@ -199,16 +203,19 @@ function render(state) {
     " ／ キャッシュ読出 " + num(t["キャッシュ読出"]) + " ／ 入力 " + num(t["入力"]);
 
   var agents = state.agents || [];
+  // 状態は2つだけ。稼働中か、待機か。**「終了」は無い**——担当エージェント
+  // を名指しで閉じる手段が無く、同じセッションのエージェントは必ず全部同時に
+  // 終わるので、終了はエージェントごとの状態ではなくセッションの属性である。
   var live = agents.filter(function (a) { return a.running; });
-  var done = agents.filter(function (a) { return !a.running; });
+  var idle = agents.filter(function (a) { return !a.running; });
 
   document.getElementById("running-count").textContent =
     live.length ? "(" + live.length + ")" : "";
   fill(document.getElementById("cards"), live, card);
   document.getElementById("cards-empty").style.display = live.length ? "none" : "block";
 
-  document.getElementById("done-section").style.display = done.length ? "block" : "none";
-  fill(document.getElementById("done"), done.slice(0, 12), doneRow);
+  document.getElementById("idle-section").style.display = idle.length ? "block" : "none";
+  fill(document.getElementById("idle"), idle.slice(0, 12), idleRow);
 
   var tasks = state.tasks || [];
   fill(document.getElementById("tasks"), tasks, taskRow);

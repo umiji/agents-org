@@ -8,28 +8,42 @@
 を要求しない」という制約で書かれているため、その検証も同じ条件で走れないと、
 配布先で確かめられない。
 
-ここで確かめるのは、机上で正しさを議論しにくい5点である。
+ここで確かめるのは、机上で正しさを議論しにくい7点である。
 
-  1. 担当エージェントが「まだ動いているか」の判定。起動を識別する番号
-     （toolUseId）が、メインセッションの会話記録に実行結果として現れたか
-     どうかで決まる——この判定が、画面の中心になる
+  1. 担当エージェントの状態（稼働中／待機）の遷移。起動を識別する番号
+     （toolUseId）が実行結果としてメインセッションの記録に現れたら待機へ、
+     その体自身の記録が伸びたら稼働中へ——この判定が、画面の中心になる
   2. 会話記録を「前回の続きから」読むこと。2秒ごとに全部読み直すと数メガ
      バイトの読み込みが繰り返され、更新に耐えない。かつ二重計上してはいけない
   3. 書き込みの途中の行（改行がまだ来ていない行）で壊れないこと。会話記録は
      セッションが動いている最中に読まれるので、これは正常な出来事である
   4. タスク台帳の読み取りと並び順。動いているタスクが上に来ること
   5. 台帳や会話記録が無い・壊れている場合に、落ちずに理由を伝えること
+  6. **経過時間を区間で持つこと。** 待機へ移ったらそこで止まり、記録ファイル
+     を触られても伸びない。再開したら新しい区間が開く
+  7. **見張るセッションを乗り換えないこと。** 別のウィンドウで新しいセッション
+     が始まっても相手を変えず、覚えたものを捨てない
+  8. **見張る相手を名指しで受け取れること。** セッション開始のフックが渡してくる
+     「いま始まったセッションの記録の場所」を使う。**これが無いと「いちばん新しい
+     記録」を選ぶしかなく、立ち上がる瞬間に新しい記録がまだ書かれていなければ、
+     古いセッションを選んで固定してしまう**（何も映さないまま動き続ける）
+
+6と7は、実際に出た不具合（表示が数秒で消える／待機のはずの体の時間が伸び
+続ける／一覧が丸ごと消える）に直接対応している。**症状はすべて「乗り換えの
+たびに覚えたものを全部捨てていた」ことから出ていた。**
 
 画面（HTML）と待ち受け（HTTPサーバ）は検証しない。状態の組み立てさえ正しけ
 れば、そこは表示するだけの層である。
 """
 
 import importlib.util
+import io
 import json
 import os
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -124,6 +138,24 @@ class Fixture:
         write_lines(log, [said(instruction)] + list(entries))
         return log
 
+    def open_another_session(self, session_id, older_by=60.0):
+        """**同じリポジトリで、別のウィンドウがもう1つ開いた**状態を作る。
+
+        新しい方の記録を新しい更新時刻にし、既に見張っている方を古くする。
+        こうしておかないと「いちばん新しいものを選ぶ」が働かず、乗り換えを
+        しないことの検証にならない。
+        """
+        project = os.path.dirname(self.main)
+        main = os.path.join(project, session_id + ".jsonl")
+        subagents = os.path.join(project, session_id, "subagents")
+        os.makedirs(subagents, exist_ok=True)
+        write_lines(main, [said("開始", cwd=self.root)])
+
+        now = time.time()
+        os.utime(self.main, (now - older_by, now - older_by))
+        os.utime(main, (now, now))
+        return main, subagents
+
     def ledger(self, rows):
         """タスク台帳の索引（CSV）を置く。"""
         docs = os.path.join(self.root, "docs")
@@ -151,8 +183,11 @@ class MonitorTest(unittest.TestCase):
 
     # ---------------------------------------------------------------- 1
 
-    def test_稼働中と終了済みを分ける(self):
-        """実行結果の行が現れた体だけが「終了」になる。"""
+    def test_稼働中と待機を分ける(self):
+        """実行結果の行が現れた体だけが「待機」になる。
+
+        待機は「終了」ではない。**呼べば文脈を保ったまま続きができる。**
+        """
         self.fx.agent("agent-aaa", "toolu_A", "org-implementation",
                       "認証APIの実装", "T-007 の実装を行うこと",
                       [usage_entry(out=100)])
@@ -165,7 +200,7 @@ class MonitorTest(unittest.TestCase):
         state = self.fx.watcher().state()
         by_task = {a["task"]: a for a in state["agents"]}
 
-        self.assertFalse(by_task["T-007"]["running"], "実行結果が来た体は終了")
+        self.assertFalse(by_task["T-007"]["running"], "実行結果が来た体は待機")
         self.assertTrue(by_task["T-005"]["running"], "実行結果が無い体は稼働中")
         self.assertEqual(state["running"], 1)
 
@@ -257,6 +292,186 @@ class MonitorTest(unittest.TestCase):
 
         write_lines(path, [usage_entry(out=3)])      # 短くなった＝作り直された
         self.assertEqual(len(tail.read(path)), 1)
+
+    def test_改善エージェントの呼び名が出る(self):
+        """6体目（改善）が対応表に入っていること。抜けていると生の定義名が出る。"""
+        self.fx.agent("agent-imp", "toolu_I", "org-improvement",
+                      "運用課題の整理", "T-020 の整理")
+        self.assertEqual(self.fx.watcher().state()["agents"][0]["role"], "改善")
+
+    def test_モニタを立てる前に終わっていた体は最初から待機(self):
+        """実行結果を先に読み、あとからその体を見つけた場合。"""
+        self.fx.main_add([finished("toolu_A")])
+        watcher = self.fx.watcher()
+        watcher.state()                       # ここで実行結果の行だけを読む
+
+        self.fx.agent("agent-aaa", "toolu_A", "org-implementation",
+                      "実装", "T-007 の実装")
+        self.assertFalse(watcher.state()["agents"][0]["running"])
+
+    # ---------------------------------------------------------------- 6
+
+    def test_待機へ移った体の経過時間は伸びない(self):
+        """報告された症状そのもの。待機の欄に入っているのに時間が伸びていた。"""
+        self.fx.agent("agent-aaa", "toolu_A", "org-implementation",
+                      "実装", "T-007 の実装")
+        self.fx.main_add([finished("toolu_A")])
+        watcher = self.fx.watcher()
+
+        base = time.time()
+        first = watcher.state(base)["agents"][0]["elapsed"]
+        later = watcher.state(base + 3600)["agents"][0]["elapsed"]
+        self.assertEqual(first, later, "1時間経っても待機中の体の時間は動かない")
+
+    def test_記録を触っただけでは経過時間が伸びない(self):
+        """区間の終わりを、ファイルの更新時刻から毎回取り直してはいけない。"""
+        log = self.fx.agent("agent-aaa", "toolu_A", "org-implementation",
+                            "実装", "T-007 の実装")
+        self.fx.main_add([finished("toolu_A")])
+        watcher = self.fx.watcher()
+
+        base = time.time()
+        first = watcher.state(base)["agents"][0]["elapsed"]
+
+        touched = base + 5000                 # 中身は増えていないが、触られた
+        os.utime(log, (touched, touched))
+        self.assertEqual(watcher.state(base + 6000)["agents"][0]["elapsed"], first)
+
+    def test_稼働中の体の経過時間は伸びる(self):
+        self.fx.agent("agent-aaa", "toolu_A", "org-implementation",
+                      "実装", "T-007 の実装")
+        watcher = self.fx.watcher()
+
+        base = time.time()
+        first = watcher.state(base)["agents"][0]["elapsed"]
+        later = watcher.state(base + 60)["agents"][0]["elapsed"]
+        self.assertAlmostEqual(later - first, 60, delta=1.0)
+
+    def test_記録が伸びたら待機から稼働中へ戻る(self):
+        """担当エージェントは文脈を保ったまま再開できる。**再開を隠さない。**"""
+        log = self.fx.agent("agent-aaa", "toolu_A", "org-implementation",
+                            "実装", "T-007 の実装")
+        self.fx.main_add([finished("toolu_A")])
+        watcher = self.fx.watcher()
+        self.assertFalse(watcher.state()["agents"][0]["running"])
+
+        append_lines(log, [usage_entry(out=5)])
+        self.assertTrue(watcher.state()["agents"][0]["running"],
+                        "呼び直されて記録が伸びたら、稼働中へ戻る")
+
+    def test_同じ巡回で記録が伸びて結果も返ったら待機になる(self):
+        """末尾の数行を読んだことが、待機へ移した体を押し戻してはいけない。"""
+        log = self.fx.agent("agent-aaa", "toolu_A", "org-implementation",
+                            "実装", "T-007 の実装")
+        watcher = self.fx.watcher()
+        self.assertTrue(watcher.state()["agents"][0]["running"])
+
+        append_lines(log, [usage_entry(out=5)])
+        self.fx.main_add([finished("toolu_A")])
+        self.assertFalse(watcher.state()["agents"][0]["running"])
+
+    # ---------------------------------------------------------------- 7
+
+    def test_別のセッションが始まっても見張る相手を変えない(self):
+        """乗り換えが、覚えたものを全部捨てる事故の入口だった。"""
+        self.fx.agent("agent-aaa", "toolu_A", "org-implementation",
+                      "実装", "T-007 の実装", [usage_entry(out=100)])
+        watcher = self.fx.watcher()
+        first = watcher.state()
+        self.assertEqual(first["session"], "S-1")
+        self.assertEqual(len(first["agents"]), 1)
+
+        # 別のウィンドウが開き、そちらでもエージェントが動き出した
+        _, subagents = self.fx.open_another_session("S-2")
+        meta = os.path.join(subagents, "agent-zzz.meta.json")
+        with open(meta, "w", encoding="utf-8") as f:
+            json.dump({"agentType": "org-review", "description": "別窓のレビュー",
+                       "toolUseId": "toolu_Z", "spawnDepth": 1}, f)
+
+        after = watcher.state()
+        self.assertEqual(after["session"], "S-1", "相手を乗り換えない")
+        self.assertEqual([a["id"] for a in after["agents"]], ["agent-aaa"],
+                         "別窓の体は映らない。こちらの体も消えない")
+        self.assertEqual(after["agents"][0]["tokens"],
+                         first["agents"][0]["tokens"], "数え直さない")
+
+    # ---------------------------------------------------------------- 8
+
+    def test_名指しされたセッションを見張る(self):
+        """記録の更新時刻がどうであれ、名指しが勝つ。"""
+        other_main, _ = self.fx.open_another_session("S-2")   # こちらの方が新しい
+        watcher = om.Watcher(self.fx.root, self.fx.transcripts,
+                             session_file=self.fx.main)
+
+        self.assertEqual(watcher.state()["session"], "S-1",
+                         "新しい方ではなく、名指しされた方を見る")
+
+    def test_名指しが無ければいちばん新しいものを選ぶ(self):
+        """人が手で立ち上げたときは名指しが無い。これまでどおりに動く。"""
+        self.fx.open_another_session("S-2")
+        self.assertEqual(self.fx.watcher().state()["session"], "S-2")
+
+    def test_名指しされた記録がまだ書かれていなくても待てる(self):
+        """セッションが始まった直後は、記録がまだ無いのが普通である。"""
+        project = os.path.dirname(self.fx.main)
+        yet = os.path.join(project, "S-9.jsonl")
+        watcher = om.Watcher(self.fx.root, self.fx.transcripts, session_file=yet)
+
+        state = watcher.state()
+        self.assertEqual(state["session"], "S-9", "無くても相手は決まっている")
+        self.assertEqual(state["agents"], [])
+        self.assertTrue(any("まだ読めない" in note for note in state["notes"]))
+
+        # 書かれ始めたら、そのまま読み進める
+        write_lines(yet, [said("開始", cwd=self.fx.root), usage_entry(out=42)])
+        self.assertEqual(watcher.state()["tokens"]["出力"], 42)
+
+    def test_フックの入力から会話記録の場所を読む(self):
+        got = self.read_hook_input(json.dumps({
+            "session_id": "S-1",
+            "transcript_path": "/somewhere/S-1.jsonl",
+            "cwd": self.fx.root,
+        }))
+        self.assertEqual(got.get("transcript_path"), "/somewhere/S-1.jsonl")
+
+    def test_フックの入力が壊れていても空で返す(self):
+        """入力が無い・壊れているだけで、セッションの開始を止めてはいけない。"""
+        self.assertEqual(self.read_hook_input(""), {})
+        self.assertEqual(self.read_hook_input("{ここは壊れている"), {})
+        self.assertEqual(self.read_hook_input('"文字列であって表ではない"'), {})
+
+    def read_hook_input(self, text):
+        """標準入力を差し替えて、フックの入力の読み取りだけを試す。"""
+        real = om.sys.stdin
+        om.sys.stdin = io.StringIO(text)
+        try:
+            return om.hook_input()
+        finally:
+            om.sys.stdin = real
+
+    def test_会話記録のパスから見張る相手を組み立てる(self):
+        got = om.session_from_file(os.path.join("proj", "S-7.jsonl"))
+        self.assertEqual(got["id"], "S-7")
+        self.assertEqual(got["subagents"],
+                         os.path.join("proj", "S-7", "subagents"))
+
+        # 会話記録ではないものを渡されたら、名指しとして扱わない
+        self.assertIsNone(om.session_from_file(""))
+        self.assertIsNone(om.session_from_file("proj/notes.md"))
+
+    def test_記録がまだ無ければ次の巡回で改めて探す(self):
+        """立ち上がりで記録が見つからなくても、そこで諦めない。"""
+        empty = tempfile.mkdtemp(prefix="org-monitor-late-")
+        try:
+            watcher = om.Watcher(self.fx.root, empty)
+            self.assertEqual(watcher.state()["session"], "")
+
+            # 記録の置き場が、あとから現れた
+            shutil.copytree(self.fx.transcripts, os.path.join(empty, "projects"))
+            watcher.transcripts = os.path.join(empty, "projects")
+            self.assertEqual(watcher.state()["session"], "S-1")
+        finally:
+            shutil.rmtree(empty, ignore_errors=True)
 
     # ---------------------------------------------------------------- 4
 
