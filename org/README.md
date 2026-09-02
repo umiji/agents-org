@@ -12,18 +12,22 @@
 | `glossary.md` | `docs/` | **用語集。** 一般的な意味と違う語、範囲が曖昧になる語、このプロジェクトの語。最後の節はプロジェクト開始後にオーケストレーターが育てる |
 | `rules/org-task-ledger.md` | `.claude/rules/` | タスク台帳の書き方（CSV索引 + タスク別Markdown） |
 | `rules/org-escalation.md` | `.claude/rules/` | エスカレーションの4段階、共通停止条件、PO確認待ちキュー |
+| `rules/org-improvement-feedback.md` | `.claude/rules/` | **組織への指摘の書き方。** 担当エージェント全員が対象。4種別（`規約` `道具` `反復` `ロール`）、`ロール` を書く6つの引き金、7段のはしご |
 | `agents/org-design.md` | `.claude/agents/` | 設計エージェント |
 | `agents/org-implementation.md` | `.claude/agents/` | 実装エージェント |
 | `agents/org-review.md` | `.claude/agents/` | レビューエージェント（**編集系ツールを持たない**） |
 | `agents/org-test.md` | `.claude/agents/` | テストエージェント |
 | `agents/org-documentation.md` | `.claude/agents/` | ドキュメントエージェント |
+| `agents/org-improvement.md` | `.claude/agents/` | **改善エージェント（6体目）。** 組織そのものを観測して改善案を作る。**編集系ツールを持たない** |
 | `skills/org-orchestrate/` | `.claude/skills/` | オーケストレーターの手順 |
 | `skills/org-session-resume/` | `.claude/skills/` | セッション再開の手順 |
 | `skills/org-init/` | `.claude/skills/` | **導入時の初期シーケンス。** 呼べるスキルを集め、担当エージェント5つへ割り当てを書き出す。**導入直後に1回だけ**走らせる |
 | `skills/org-first-run-check/` | `.claude/skills/` | **初回運用の点検手順。** 最初のタスクが1件完了したら使う |
+| `skills/org-improve/` | `.claude/skills/` | **組織の観測と診断の手順。** 改善エージェントが組織点検の節目に使う。信号10種、7段のはしご、組織の目標状態 |
 | `templates/T-XXX.md` | `.claude/templates/` | **タスク別ファイルの雛形。** コピーして使う |
 | `templates/task-list.csv` | `.claude/templates/`（使うときに `docs/task-list-{project-name}.csv` へ複写） | 索引のヘッダ行だけの空ファイル |
-| `templates/po-queue.md` | `.claude/templates/`（使うときに `docs/po-queue.md` へ複写） | **PO確認待ちキューの雛形。** 見出しの書式が検査対象 |
+| `templates/po-queue.md` | `.claude/templates/`（使うときに `docs/po-queue.md` へ複写） | **PO確認待ちキューの雛形。** 見出しの書式が検査対象。`反応` 欄に PO の差し戻し・却下・言い直しを残す |
+| `templates/org-improvements.md` | `.claude/templates/`（使うときに `docs/org-improvements.md` へ複写） | **組織改善の台帳の雛形。** 1課題1ブロック、状態9種。**書くのはオーケストレーターだけ** |
 | `templates/tasks-README.md` | `.claude/templates/`（使うときに `docs/tasks/README.md` へ複写） | 詳細ファイルの置き場の説明 |
 | `scripts/org-check.py` | `.claude/scripts/` | **停滞検知と整合性検査。** Python 3.8 以降、標準ライブラリのみ |
 | `scripts/org-tokens.py` | `.claude/scripts/` | **トークン消費の集計。** タスク別・担当エージェント別・モデル別。同上 |
